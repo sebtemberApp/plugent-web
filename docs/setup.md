@@ -22,12 +22,14 @@ Create an **empty private** repo `sebtemberApp/plugent-web` (no README, no licen
 
 ## 3. Sebtember's Firebase Auth (so Plugent can sign people in)
 1. Firebase console → `sebtember-app-dev` → **Authentication → Settings → Authorized domains** → add the Plugent
-   dev domain (and `localhost` if it is not there).
-2. If the sebtember web API key has **HTTP referrer restrictions** (Google Cloud → APIs & Services → Credentials on
-   `sebtember-app-dev`), add the Plugent domain there too.
-3. Copy the web app config (Project settings → Your apps → Web app): `apiKey`, `authDomain`, `projectId`, `appId`.
+   dev domain (and `localhost` if it is not there). ✅ `dev.plugent.app` added 2026-10-26.
+2. API key restrictions: open https://console.cloud.google.com/apis/credentials?project=sebtember-app-dev →
+   **API keys** → "Browser key (auto created by Firebase)" → **Application restrictions**. "None" → nothing to do;
+   "Websites" → add the Plugent domain and Save.
+3. ✅ 2026-10-26: Vaidas created a web app **Plugent Web (dev)** in Sebtember Dev (like PeakPick Web). Its config
+   (Project settings → Your apps → Plugent Web (dev) → Config) fills `NEXT_PUBLIC_SEBTEMBER_FIREBASE_{API_KEY,AUTH_DOMAIN,PROJECT_ID,APP_ID}`.
 
-## 4. Sebtember lets Plugent read and charge the wallet
+## 4. Sebtember lets Plugent read and charge the wallet (✅ dev, 2026-10-26)
 In the **sebtember-web** Vercel project, **Preview** environment:
 - `PRODUCT_API_CALLERS`: append `,plugent=plugent-web@plugent-dev.iam.gserviceaccount.com`
   (keep the existing `peakpick=…` entry).
@@ -36,7 +38,7 @@ In the **sebtember-web** Vercel project, **Preview** environment:
 
 On dev, sebtember's sign-in **email allowlist** still applies: a Plugent user not on it gets no wallet.
 
-## 5. Plugent on Vercel
+## 5. Plugent on Vercel (✅ dev, 2026-10-26)
 1. Vercel → **Add New → Project** → import `plugent-web`. Framework: Next.js, defaults.
 2. Environment variables (Preview), from `.env.example`:
    - `NEXT_PUBLIC_SEBTEMBER_FIREBASE_API_KEY` / `_AUTH_DOMAIN` / `_PROJECT_ID` / `_APP_ID` — step 3.3
