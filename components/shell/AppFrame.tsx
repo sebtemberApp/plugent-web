@@ -1,17 +1,21 @@
 "use client";
 
-import { Menu, X } from "lucide-react";
+import { ArrowRightToLine, Menu, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { RunSummary } from "@/lib/runs";
+import { readStored, writeStored } from "@/lib/ui/stored";
 import { BalanceProvider } from "./BalanceContext";
 import { Logo } from "./Logo";
 import { Sidebar } from "./Sidebar";
 
+const HIDDEN_KEY = "plugent-sidebar-hidden";
+
 /**
  * The signed-in frame: a 264px sidebar beside the page from 900px up; below that a top
- * bar whose menu button slides the same sidebar in over the page.
+ * bar whose menu button slides the same sidebar in over the page. On a wide screen the
+ * sidebar's arrow hides it to a thin rail, whose arrow brings it back.
  */
 export function AppFrame({
   email,
@@ -26,7 +30,15 @@ export function AppFrame({
   children: React.ReactNode;
 }) {
   const [drawer, setDrawer] = useState(false);
+  // Wide screens: the sidebar can be hidden to a thin rail, remembered per browser.
+  const [hidden, setHidden] = useState(false);
   const path = usePathname();
+
+  useEffect(() => setHidden(readStored(HIDDEN_KEY, false)), []);
+  const hide = (value: boolean) => {
+    setHidden(value);
+    writeStored(HIDDEN_KEY, value);
+  };
 
   // A navigation closes the drawer; so does Escape.
   // biome-ignore lint/correctness/useExhaustiveDependencies: closes on every path change
@@ -41,9 +53,23 @@ export function AppFrame({
   return (
     <BalanceProvider>
       <div className="flex min-h-dvh">
-        <aside className="sticky top-0 hidden h-dvh w-[264px] shrink-0 border-hair border-r-[0.5px] min-[900px]:block">
-          <Sidebar email={email} topUpUrl={topUpUrl} runs={runs} />
-        </aside>
+        {hidden ? (
+          <div className="sticky top-0 hidden h-dvh w-14 shrink-0 flex-col items-center border-hair border-r-[0.5px] bg-side pt-4 min-[900px]:flex">
+            <button
+              type="button"
+              aria-label="Show sidebar"
+              title="Show sidebar"
+              onClick={() => hide(false)}
+              className="flex size-9 items-center justify-center rounded-full text-ink2 hover:bg-fill1 hover:text-ink"
+            >
+              <ArrowRightToLine aria-hidden size={18} />
+            </button>
+          </div>
+        ) : (
+          <aside className="sticky top-0 hidden h-dvh w-[264px] shrink-0 border-hair border-r-[0.5px] min-[900px]:block">
+            <Sidebar email={email} topUpUrl={topUpUrl} runs={runs} onHide={() => hide(true)} />
+          </aside>
+        )}
 
         {drawer && (
           <div className="fixed inset-0 z-40 min-[900px]:hidden">

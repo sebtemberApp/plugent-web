@@ -22,7 +22,7 @@ export function RunList({
 }) {
   if (runs.length === 0) return null;
   return (
-    <ul className="mb-1 ml-[22px] flex flex-col border-hair border-l-[0.5px] pl-2">
+    <ul className="flex flex-col">
       {runs.map((run) => (
         <RunRow key={run.id} run={run} href={hrefFor(run.id)} onNavigate={onNavigate} />
       ))}
