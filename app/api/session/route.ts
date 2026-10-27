@@ -13,6 +13,18 @@ import {
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
+  try {
+    return await createSession(req);
+  } catch (err) {
+    // Anything unexpected: named on dev, so a failure can be read off the page.
+    console.error("[session]", err);
+    const detail =
+      process.env.VERCEL_ENV === "production" ? undefined : String((err as Error)?.message ?? err);
+    return NextResponse.json({ error: "session_error", detail }, { status: 500 });
+  }
+}
+
+async function createSession(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const idToken = typeof body?.idToken === "string" ? body.idToken : "";
   const user = idToken ? await verifySebtemberIdToken(idToken) : null;

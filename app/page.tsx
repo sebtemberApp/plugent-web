@@ -10,6 +10,9 @@ export default function Home() {
         </p>
       </div>
       <AccountPanel />
+      <p className="text-xs text-muted">
+        Build {process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "local"}
+      </p>
     </main>
   );
 }

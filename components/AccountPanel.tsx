@@ -35,7 +35,8 @@ export function AccountPanel() {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        return setBalance({ error: body.error ?? `session_refused_${res.status}` });
+        const reason = body.error ?? `session_refused_${res.status}`;
+        return setBalance({ error: body.detail ? `${reason}: ${body.detail}` : reason });
       }
       const b = await fetch("/api/balance");
       setBalance(await b.json());
