@@ -20,7 +20,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <AppFrame
       email={user.email}
-      topUpUrl={origin ? new URL("/usage", origin).toString() : null}
+      sebtemberUrl={origin ? new URL(origin).origin : null}
       runs={runs}
       disabledAgents={prefs.disabledAgents}
     >

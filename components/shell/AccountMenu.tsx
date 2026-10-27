@@ -1,7 +1,16 @@
 "use client";
 
 import { signOut } from "firebase/auth";
-import { ExternalLink, LayoutGrid, LogOut, Monitor, Moon, Sun } from "lucide-react";
+import {
+  ArrowLeftRight,
+  ArrowUpRight,
+  LayoutGrid,
+  LogOut,
+  Monitor,
+  Moon,
+  Sun,
+  SunMoon,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -15,16 +24,53 @@ const THEMES: { id: ThemeChoice; label: string; icon: React.ReactNode }[] = [
   { id: "dark", label: "Dark", icon: <Moon aria-hidden size={15} /> },
 ];
 
-/** The account button at the foot of the sidebar: balance, All agents, Top up, theme and
- *  sign out.
+/** The PeakPick site, which shares the Sebtember login and wallet. */
+const PEAKPICK_URL = "https://peakpick.ai";
+
+const ITEM =
+  "flex h-9 w-full items-center gap-2.5 rounded-chip px-2.5 text-left text-[15px] hover:bg-fill1";
+
+/** A menu row that opens another site in a new tab. */
+function OutLink({
+  href,
+  icon,
+  children,
+}: {
+  href: string;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <a role="menuitem" href={href} target="_blank" rel="noopener" className={ITEM}>
+      {icon}
+      <span className="flex-1">{children}</span>
+      <ArrowUpRight aria-hidden size={14} className="text-ink2" />
+    </a>
+  );
+}
+
+/** A small lettered tile standing for another product. */
+function AppTile({ letter, className }: { letter: string; className: string }) {
+  return (
+    <span
+      aria-hidden
+      className={`flex size-5 shrink-0 items-center justify-center rounded-[6px] text-[11px] font-bold text-white ${className}`}
+    >
+      {letter}
+    </span>
+  );
+}
+
+/** The account button at the foot of the sidebar: balance, then four groups — the sibling
+ *  sites; All agents and Change wallet; Appearance; Sign out.
  *  `compact` is the hidden sidebar's rail: the avatar alone, the menu opening beside it. */
 export function AccountMenu({
   email,
-  topUpUrl,
+  sebtemberUrl,
   compact = false,
 }: {
   email: string | null;
-  topUpUrl: string | null;
+  sebtemberUrl: string | null;
   compact?: boolean;
 }) {
   const { balance } = useBalance();
@@ -81,29 +127,35 @@ export function AccountMenu({
               </p>
             )}
           </div>
-          <Link
-            role="menuitem"
-            href="/agents"
-            onClick={() => setOpen(false)}
-            className="flex h-9 items-center gap-2.5 rounded-chip px-2.5 text-[15px] hover:bg-fill1"
-          >
+          {sebtemberUrl && (
+            <OutLink
+              href={sebtemberUrl}
+              icon={<AppTile letter="S" className="bg-[#16152E] dark:bg-[#3A3A52]" />}
+            >
+              Open sebtember.app
+            </OutLink>
+          )}
+          <OutLink href={PEAKPICK_URL} icon={<AppTile letter="P" className="bg-[#2F7D46]" />}>
+            Open peakpick.ai
+          </OutLink>
+          <div className="my-1 h-px bg-hair" />
+          <Link role="menuitem" href="/agents" onClick={() => setOpen(false)} className={ITEM}>
             <LayoutGrid aria-hidden size={16} className="text-ink2" />
             All agents
           </Link>
-          {topUpUrl && (
-            <a
-              role="menuitem"
-              href={topUpUrl}
-              target="_blank"
-              rel="noopener"
-              className="flex h-9 items-center gap-2.5 rounded-chip px-2.5 text-[15px] hover:bg-fill1"
+          {sebtemberUrl && (
+            <OutLink
+              href={new URL("/usage", sebtemberUrl).toString()}
+              icon={<ArrowLeftRight aria-hidden size={16} className="text-ink2" />}
             >
-              <ExternalLink aria-hidden size={16} className="text-ink2" />
-              Top up on Sebtember
-            </a>
+              Change wallet
+            </OutLink>
           )}
           <div className="my-1 h-px bg-hair" />
-          <p className="px-2.5 pt-1 pb-1.5 text-[12px] font-semibold text-ink2">Appearance</p>
+          <p className="flex items-center gap-2.5 px-2.5 pt-1 pb-1.5 text-[15px]">
+            <SunMoon aria-hidden size={16} className="text-ink2" />
+            Appearance
+          </p>
           <div className="mx-1 mb-1 grid grid-cols-3 gap-1 rounded-chip bg-fill1 p-0.5">
             {THEMES.map((t) => (
               <button
@@ -125,12 +177,7 @@ export function AccountMenu({
             ))}
           </div>
           <div className="my-1 h-px bg-hair" />
-          <button
-            type="button"
-            role="menuitem"
-            onClick={signOutBoth}
-            className="flex h-9 w-full items-center gap-2.5 rounded-chip px-2.5 text-left text-[15px] hover:bg-fill1"
-          >
+          <button type="button" role="menuitem" onClick={signOutBoth} className={ITEM}>
             <LogOut aria-hidden size={16} className="text-ink2" />
             Sign out
           </button>

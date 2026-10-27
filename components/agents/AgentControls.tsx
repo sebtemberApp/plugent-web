@@ -126,13 +126,12 @@ export function ChatSettingsButton({ mode }: { mode: AskMode }) {
             </button>
           </div>
           <p className="mt-2 mb-1.5 text-[13px] font-semibold text-ink2">A new chat starts in</p>
-          <div role="radiogroup" aria-label="A new chat starts in" className="flex flex-col">
+          <div role="group" aria-label="A new chat starts in" className="flex flex-col">
             {MODES.map((m) => (
               <button
                 key={m.id}
                 type="button"
-                role="radio"
-                aria-checked={current === m.id}
+                aria-pressed={current === m.id}
                 disabled={pending}
                 onClick={() => pick(m.id)}
                 className="flex w-full items-start gap-2.5 rounded-chip px-2 py-2 text-left hover:bg-fill1"

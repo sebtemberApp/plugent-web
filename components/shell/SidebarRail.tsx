@@ -38,12 +38,12 @@ function RailLink({
  *  its runs are in the full sidebar. */
 export function SidebarRail({
   email,
-  topUpUrl,
+  sebtemberUrl,
   disabledAgents,
   onShow,
 }: {
   email: string | null;
-  topUpUrl: string | null;
+  sebtemberUrl: string | null;
   disabledAgents: AgentId[];
   onShow: () => void;
 }) {
@@ -96,7 +96,7 @@ export function SidebarRail({
       </div>
 
       <div className="border-hair border-t-[0.5px] pt-3">
-        <AccountMenu email={email} topUpUrl={topUpUrl} compact />
+        <AccountMenu email={email} sebtemberUrl={sebtemberUrl} compact />
       </div>
     </nav>
   );

@@ -21,13 +21,13 @@ const HIDDEN_KEY = "plugent-sidebar-hidden";
  */
 export function AppFrame({
   email,
-  topUpUrl,
+  sebtemberUrl,
   runs,
   disabledAgents,
   children,
 }: {
   email: string | null;
-  topUpUrl: string | null;
+  sebtemberUrl: string | null;
   /** null when the history could not be read. */
   runs: RunSummary[] | null;
   /** Agents the user turned off on All agents: not shown in the sidebar or the rail. */
@@ -62,7 +62,7 @@ export function AppFrame({
           <aside className="sticky top-0 z-40 hidden h-dvh w-14 shrink-0 border-hair border-r-[0.5px] min-[900px]:block">
             <SidebarRail
               email={email}
-              topUpUrl={topUpUrl}
+              sebtemberUrl={sebtemberUrl}
               disabledAgents={disabledAgents}
               onShow={() => hide(false)}
             />
@@ -71,7 +71,7 @@ export function AppFrame({
           <aside className="sticky top-0 hidden h-dvh w-[264px] shrink-0 border-hair border-r-[0.5px] min-[900px]:block">
             <Sidebar
               email={email}
-              topUpUrl={topUpUrl}
+              sebtemberUrl={sebtemberUrl}
               runs={runs}
               disabledAgents={disabledAgents}
               onHide={() => hide(true)}
@@ -90,7 +90,7 @@ export function AppFrame({
             <aside className="absolute inset-y-0 left-0 w-[min(300px,85vw)] shadow-pop">
               <Sidebar
                 email={email}
-                topUpUrl={topUpUrl}
+                sebtemberUrl={sebtemberUrl}
                 runs={runs}
                 disabledAgents={disabledAgents}
                 onNavigate={() => setDrawer(false)}

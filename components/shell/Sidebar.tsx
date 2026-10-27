@@ -54,14 +54,14 @@ function PlainIcon({ children }: { children: React.ReactNode }) {
  *  Suggest an agent are reached from Home. */
 export function Sidebar({
   email,
-  topUpUrl,
+  sebtemberUrl,
   runs,
   disabledAgents,
   onNavigate,
   onHide,
 }: {
   email: string | null;
-  topUpUrl: string | null;
+  sebtemberUrl: string | null;
   runs: RunSummary[] | null;
   disabledAgents: AgentId[];
   onNavigate?: () => void;
@@ -137,7 +137,7 @@ export function Sidebar({
         />
       </div>
       <div className="border-hair border-t-[0.5px] px-3 pt-3">
-        <AccountMenu email={email} topUpUrl={topUpUrl} />
+        <AccountMenu email={email} sebtemberUrl={sebtemberUrl} />
       </div>
     </nav>
   );
