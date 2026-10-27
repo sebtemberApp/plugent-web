@@ -49,6 +49,17 @@ On dev, sebtember's sign-in **email allowlist** still applies: a Plugent user no
 3. Domains: add the Plugent dev domain to the `dev` branch.
 
 ## 6. Check it
-Open the dev domain → **Sign in with your Sebtember account** → you should see your email and your Sebtember
-balance. If the balance says `unauthorized`/502, step 4 has not been redeployed or the email does not match;
-`not_configured` means a step-5 variable is missing.
+1. https://dev.plugent.app/api/health — the live `commit`, and `true` for every setting, `sessionSecretLongEnough`
+   and `serviceAccountJsonParses`. Never a value.
+2. https://dev.plugent.app → **Sign in with your Sebtember account** → your email and your Sebtember balance.
+
+⚠️ **A variable reaches only deployments built AFTER it was saved.** Vercel's Redeploy rebuilds the SAME commit, so
+health's `commit` does not change; check the deployment's Created time instead, or push a commit.
+
+| page says | meaning |
+|---|---|
+| `Sign-in failed: auth/unauthorized-domain` | the domain is not in Sebtember Dev → Authentication → Authorized domains |
+| `session_secret_misconfigured` | `PLUGENT_SESSION_SECRET` missing or under 32 characters |
+| `not_configured` | `SEBTEMBER_API_ORIGIN`, `SEBTEMBER_PRODUCT_API_AUDIENCE` or `PLUGENT_SERVICE_ACCOUNT_JSON` missing |
+| `unauthorized` | sebtember refused the service account: `PRODUCT_API_CALLERS` / audience, or sebtember `dev` not redeployed |
+| `no_such_user` | no Sebtember wallet for this login (on dev: the email allowlist) |
