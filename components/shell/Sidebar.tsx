@@ -56,12 +56,14 @@ export function Sidebar({
   email,
   topUpUrl,
   runs,
+  disabledAgents,
   onNavigate,
   onHide,
 }: {
   email: string | null;
   topUpUrl: string | null;
   runs: RunSummary[] | null;
+  disabledAgents: AgentId[];
   onNavigate?: () => void;
   /** Hides the sidebar (wide screens); absent in the phone drawer. */
   onHide?: () => void;
@@ -110,7 +112,7 @@ export function Sidebar({
         />
 
         <h2 className="mt-4 mb-1 px-2.5 text-[13px] font-semibold text-ink2">Agents</h2>
-        {AGENTS.map((agent) => (
+        {AGENTS.filter((a) => !disabledAgents.includes(a.id)).map((agent) => (
           <AgentGroup
             key={agent.id}
             agent={agent}

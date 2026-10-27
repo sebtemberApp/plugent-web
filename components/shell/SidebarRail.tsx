@@ -4,7 +4,7 @@ import { ArrowRightToLine, House, Layers } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AgentIcon } from "@/components/ui/AgentIcon";
-import { AGENTS } from "@/lib/agents/registry";
+import { AGENTS, type AgentId } from "@/lib/agents/registry";
 import { AccountMenu } from "./AccountMenu";
 
 const CELL = "flex size-10 items-center justify-center rounded-control";
@@ -39,10 +39,12 @@ function RailLink({
 export function SidebarRail({
   email,
   topUpUrl,
+  disabledAgents,
   onShow,
 }: {
   email: string | null;
   topUpUrl: string | null;
+  disabledAgents: AgentId[];
   onShow: () => void;
 }) {
   const path = usePathname();
@@ -68,7 +70,7 @@ export function SidebarRail({
         </RailLink>
 
         <span aria-hidden className="my-2 h-px w-6 bg-hair" />
-        {AGENTS.map((agent) =>
+        {AGENTS.filter((a) => !disabledAgents.includes(a.id)).map((agent) =>
           agent.available ? (
             <RailLink
               key={agent.id}

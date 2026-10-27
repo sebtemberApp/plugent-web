@@ -10,7 +10,6 @@ import { AgentIcon } from "@/components/ui/AgentIcon";
 import type { AskMode } from "@/lib/agents/ask";
 import { agentById } from "@/lib/agents/registry";
 import type { StoredTurn } from "@/lib/runs";
-import { readStored, writeStored } from "@/lib/ui/stored";
 import { AnswerText } from "./AnswerText";
 import { ChatOutline, outlineTitle, turnAnchor } from "./ChatOutline";
 import { ModePicker } from "./ModePicker";
@@ -59,12 +58,12 @@ type Turn = {
 };
 
 const MAX_QUESTION_CHARS = 2000;
-const MODE_KEY = "plugent-chat-mode";
 const chat = agentById("chat");
 
 const ERRORS: Record<string, string> = {
   low_balance: "Your Sebtember balance is too low for this. Top it up from the account menu.",
   not_connected: "Plugent can't read your Sebtember catalogues just now. Try again in a moment.",
+  agent_off: "Chat is turned off. Turn it on in All agents to ask again.",
   invalid_question: "Type a question first (up to 2,000 characters).",
   unauthorized: "Your session has ended. Reload the page to sign in again.",
   run_not_found: "This chat was deleted. Start a new chat to ask again.",
@@ -97,10 +96,16 @@ export function ChatAgent({
   runId: initialRunId,
   title: initialTitle,
   initialTurns,
+  off,
+  defaultMode,
 }: {
   runId: string | null;
   title: string | null;
   initialTurns: StoredTurn[];
+  /** Turned off on All agents: the chat is readable, the composer is not offered. */
+  off: boolean;
+  /** Chat settings' mode for a new chat. */
+  defaultMode: AskMode;
 }) {
   const { spent } = useBalance();
   const router = useRouter();
@@ -108,16 +113,9 @@ export function ChatAgent({
   const [title, setTitle] = useState(initialTitle);
   const [turns, setTurns] = useState<Turn[]>(() => fromStored(initialTurns));
   const [question, setQuestion] = useState("");
-  // Standard or Deeper thinking; a mode, so it stays across questions, runs and reloads.
-  const [mode, setMode] = useState<AskMode>("standard");
-  useEffect(
-    () => setMode(readStored<AskMode>(MODE_KEY, "standard") === "deep" ? "deep" : "standard"),
-    [],
-  );
-  const changeMode = (next: AskMode) => {
-    setMode(next);
-    writeStored(MODE_KEY, next);
-  };
+  // Standard or Deeper thinking: starts at Chat settings' default, and a change here
+  // lasts for this chat's questions.
+  const [mode, setMode] = useState<AskMode>(defaultMode);
   const nextId = useRef(1);
 
   // Another run (or a new chat) opened from the sidebar: show it. The URL this page gave
@@ -229,47 +227,58 @@ export function ChatAgent({
         </div>
       </div>
       <div className="sticky bottom-0 mx-auto w-full max-w-[820px] bg-gradient-to-t from-page from-70% to-transparent px-4 pt-3 pb-4 min-[600px]:px-8 min-[600px]:pb-6">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            ask();
-          }}
-          className="flex flex-col gap-2 rounded-card bg-card py-3 pr-3 pl-[18px] shadow-card focus-within:ring-2 focus-within:ring-act/35"
-        >
-          <label htmlFor="chat-question" className="sr-only">
-            Ask a question
-          </label>
-          <textarea
-            id="chat-question"
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault();
-                ask();
-              }
-            }}
-            rows={2}
-            maxLength={MAX_QUESTION_CHARS}
-            placeholder="Ask a question about your documents"
-            className="resize-none bg-transparent pt-1 text-[16px] leading-6 outline-none placeholder:text-ink2 focus-visible:outline-none"
-          />
-          <div className="flex items-center gap-2">
-            <ModePicker mode={mode} onChange={changeMode} disabled={busy} />
-            <span className="flex-1 truncate text-[13px] text-ink2 max-[520px]:hidden">
-              Enter to send, Shift+Enter for a new line
-            </span>
-            <span className="flex-1 min-[521px]:hidden" />
-            <button
-              type="submit"
-              aria-label="Send"
-              disabled={busy || question.trim().length === 0}
-              className="flex size-9 items-center justify-center rounded-full bg-act text-white hover:bg-act-press disabled:opacity-40"
-            >
-              <ArrowUp aria-hidden size={18} strokeWidth={2.2} />
-            </button>
+        {off ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-card bg-card px-5 py-4 shadow-card">
+            <p className="text-[15px] text-ink2">
+              Chat is turned off, so you can read this chat but not ask.
+            </p>
+            <Link href="/agents" className="text-link text-[15px] font-semibold">
+              Turn it on in All agents
+            </Link>
           </div>
-        </form>
+        ) : (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              ask();
+            }}
+            className="flex flex-col gap-2 rounded-card bg-card py-3 pr-3 pl-[18px] shadow-card focus-within:ring-2 focus-within:ring-act/35"
+          >
+            <label htmlFor="chat-question" className="sr-only">
+              Ask a question
+            </label>
+            <textarea
+              id="chat-question"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  ask();
+                }
+              }}
+              rows={2}
+              maxLength={MAX_QUESTION_CHARS}
+              placeholder="Ask a question about your documents"
+              className="resize-none bg-transparent pt-1 text-[16px] leading-6 outline-none placeholder:text-ink2 focus-visible:outline-none"
+            />
+            <div className="flex items-center gap-2">
+              <ModePicker mode={mode} onChange={setMode} disabled={busy} />
+              <span className="flex-1 truncate text-[13px] text-ink2 max-[520px]:hidden">
+                Enter to send, Shift+Enter for a new line
+              </span>
+              <span className="flex-1 min-[521px]:hidden" />
+              <button
+                type="submit"
+                aria-label="Send"
+                disabled={busy || question.trim().length === 0}
+                className="flex size-9 items-center justify-center rounded-full bg-act text-white hover:bg-act-press disabled:opacity-40"
+              >
+                <ArrowUp aria-hidden size={18} strokeWidth={2.2} />
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     </main>
   );

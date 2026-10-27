@@ -4,7 +4,7 @@ import { Check, ChevronDown, Sparkles, Zap } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { AskMode } from "@/lib/agents/ask";
 
-const MODES: { id: AskMode; label: string; description: string }[] = [
+export const MODES: { id: AskMode; label: string; description: string }[] = [
   {
     id: "standard",
     label: "Standard",

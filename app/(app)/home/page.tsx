@@ -1,10 +1,19 @@
 import { Layers, Lightbulb } from "lucide-react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { AgentCard } from "@/components/agents/AgentCard";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { AGENTS } from "@/lib/agents/registry";
+import { getSessionUser } from "@/lib/auth/session";
+import { readPrefsOrDefaults } from "@/lib/prefs";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  const user = await getSessionUser();
+  if (!user) redirect("/");
+  const { disabledAgents } = await readPrefsOrDefaults(user.uid);
+  const agents = AGENTS.filter((a) => !disabledAgents.includes(a.id));
   return (
     <main className="mx-auto flex w-full max-w-[960px] flex-col gap-8 px-4 py-8 min-[600px]:px-8 min-[600px]:py-10">
       <PageHeader
@@ -15,7 +24,7 @@ export default function Home() {
         aria-label="Agents"
         className="grid gap-4 min-[600px]:grid-cols-2 min-[1100px]:grid-cols-3"
       >
-        {AGENTS.map((agent) => (
+        {agents.map((agent) => (
           <AgentCard key={agent.id} agent={agent} />
         ))}
         {/* The only way to "add" an agent: ask the platform admin for it. */}

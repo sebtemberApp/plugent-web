@@ -4,6 +4,7 @@ import { Menu, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import type { AgentId } from "@/lib/agents/registry";
 import type { RunSummary } from "@/lib/runs";
 import { readStored, writeStored } from "@/lib/ui/stored";
 import { BalanceProvider } from "./BalanceContext";
@@ -22,12 +23,15 @@ export function AppFrame({
   email,
   topUpUrl,
   runs,
+  disabledAgents,
   children,
 }: {
   email: string | null;
   topUpUrl: string | null;
   /** null when the history could not be read. */
   runs: RunSummary[] | null;
+  /** Agents the user turned off on All agents: not shown in the sidebar or the rail. */
+  disabledAgents: AgentId[];
   children: React.ReactNode;
 }) {
   const [drawer, setDrawer] = useState(false);
@@ -56,11 +60,22 @@ export function AppFrame({
       <div className="flex min-h-dvh">
         {hidden ? (
           <aside className="sticky top-0 z-40 hidden h-dvh w-14 shrink-0 border-hair border-r-[0.5px] min-[900px]:block">
-            <SidebarRail email={email} topUpUrl={topUpUrl} onShow={() => hide(false)} />
+            <SidebarRail
+              email={email}
+              topUpUrl={topUpUrl}
+              disabledAgents={disabledAgents}
+              onShow={() => hide(false)}
+            />
           </aside>
         ) : (
           <aside className="sticky top-0 hidden h-dvh w-[264px] shrink-0 border-hair border-r-[0.5px] min-[900px]:block">
-            <Sidebar email={email} topUpUrl={topUpUrl} runs={runs} onHide={() => hide(true)} />
+            <Sidebar
+              email={email}
+              topUpUrl={topUpUrl}
+              runs={runs}
+              disabledAgents={disabledAgents}
+              onHide={() => hide(true)}
+            />
           </aside>
         )}
 
@@ -77,6 +92,7 @@ export function AppFrame({
                 email={email}
                 topUpUrl={topUpUrl}
                 runs={runs}
+                disabledAgents={disabledAgents}
                 onNavigate={() => setDrawer(false)}
               />
               <button

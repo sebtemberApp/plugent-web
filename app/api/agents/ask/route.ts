@@ -6,6 +6,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { AskRefused, MAX_QUESTION_CHARS, runAsk } from "@/lib/agents/ask";
 import { getSessionUser } from "@/lib/auth/session";
+import { readPrefs } from "@/lib/prefs";
 import { isRunId, runExists, saveTurn } from "@/lib/runs";
 import { SebtemberApiError } from "@/lib/sebtember/products";
 
@@ -19,6 +20,12 @@ export async function POST(req: NextRequest) {
   const question = typeof body?.question === "string" ? body.question.trim() : "";
   if (question.length === 0 || question.length > MAX_QUESTION_CHARS) {
     return NextResponse.json({ error: "invalid_question" }, { status: 400 });
+  }
+  // Turned off on All agents: refused before any money is spent. A failed read refuses too.
+  const prefs = await readPrefs(user.uid).catch(() => null);
+  if (!prefs) return NextResponse.json({ error: "unavailable" }, { status: 503 });
+  if (prefs.disabledAgents.includes("chat")) {
+    return NextResponse.json({ error: "agent_off" }, { status: 403 });
   }
   const mode = body?.mode === "deep" ? "deep" : "standard";
   const runId = body?.runId == null ? null : String(body.runId);
