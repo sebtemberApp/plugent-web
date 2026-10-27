@@ -30,7 +30,7 @@ export const AGENTS: readonly AgentEntry[] = [
     name: "Troubleshooting",
     description: "Describe a fault and work through it one checked step at a time.",
     href: "/agents/troubleshooting",
-    available: false,
+    available: true,
     accent: "a-ts",
   },
   {

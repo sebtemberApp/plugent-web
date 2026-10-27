@@ -14,7 +14,7 @@ import { AnswerText } from "./AnswerText";
 import { ChatOutline, outlineTitle, turnAnchor } from "./ChatOutline";
 import { ModePicker } from "./ModePicker";
 
-type Source = {
+export type Source = {
   n: number;
   fileName: string;
   catalogueName: string | null;
@@ -27,7 +27,7 @@ type Source = {
 
 /** The answer's content owners for its "Source:" row, as Sebtember chat shows them: the
  *  user's own first as "You", then each other owner once, in citation order. */
-function ownersOf(sources: Source[]): { label: string; own: boolean }[] {
+export function ownersOf(sources: Source[]): { label: string; own: boolean }[] {
   const others: string[] = [];
   let own = false;
   for (const src of sources) {
@@ -443,7 +443,7 @@ function TurnView({
   );
 }
 
-function SourceCard({ source }: { source: Source }) {
+export function SourceCard({ source }: { source: Source }) {
   const ext = /\.([a-z0-9]{2,5})$/i.exec(source.fileName)?.[1]?.toUpperCase() ?? "FILE";
   const page = source.page ? `p. ${source.page}` : null;
   return (
@@ -486,7 +486,7 @@ const ICON_BUTTON =
 /** The answer card's foot: whose content it drew on ("Source:") on the left, its actions
  *  on the right. The tokens are in the run's header, not here.
  *  One Feedback icon (no like / dislike) opens a short note to the platform admin. */
-function AnswerFooter({
+export function AnswerFooter({
   owners,
   charged = true,
   runId,

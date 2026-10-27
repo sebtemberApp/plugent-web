@@ -9,6 +9,7 @@ import "server-only";
 import { FieldValue, type Timestamp } from "firebase-admin/firestore";
 import type { AskResult, AskSource } from "@/lib/agents/ask";
 import type { AgentId } from "@/lib/agents/registry";
+import type { StepData, StepOutcomeKind } from "@/lib/agents/troubleshoot-prompts";
 import { plugentDb } from "@/lib/firebase/admin";
 
 export const MAX_TITLE_CHARS = 80;
@@ -190,4 +191,197 @@ export async function renameRun(uid: string, runId: string, title: string): Prom
 /** Deletes the run and every turn under it. */
 export async function deleteRun(uid: string, runId: string): Promise<void> {
   await plugentDb().recursiveDelete(runs(uid).doc(runId));
+}
+
+/* ------------------------------------------------------------- troubleshooting */
+
+/**
+ * A Troubleshooting run keeps its state on the run document (`ts`) and its thread as
+ * turns ordered by `seq` (several turns are written in one batch, so a server timestamp
+ * cannot order them). A photo the user sent is kept once, at the size the model reads it,
+ * under `photos/`, so later steps still see it; the turn holds only a small thumbnail.
+ */
+export type TsStatus = "draft" | "clarifying" | "stepping" | "resolved" | "exhausted";
+
+export interface TsState {
+  /** The first description plus every clarifying answer: the search query. */
+  problem: string;
+  status: TsStatus;
+  clarifyCount: number;
+  stepCount: number;
+}
+
+export type TsTurnBody =
+  | {
+      role: "user";
+      text: string;
+      /** A small JPEG data URL of the photo sent with this turn. */
+      thumb: string | null;
+      outcome: { stepId: string; kind: StepOutcomeKind; label: string } | null;
+    }
+  | { role: "clarify"; question: string; options: string[] }
+  | { role: "context" }
+  | {
+      role: "step";
+      step: StepData;
+      sources: AskSource[];
+      done: { kind: StepOutcomeKind; label: string } | null;
+      tokens: number;
+    }
+  | {
+      role: "end";
+      result: "resolved" | "exhausted";
+      summary: string;
+      sources: AskSource[];
+      tokens: number;
+    };
+
+export type TsTurn = TsTurnBody & { id: string; seq: number };
+
+/** A turn in flight longer than this is a crashed request, not a live one (route: 120 s). */
+const TS_STALE_MS = 150_000;
+
+export const TS_NEW_STATE: TsState = {
+  problem: "",
+  status: "draft",
+  clarifyCount: 0,
+  stepCount: 0,
+};
+
+function tsState(raw: unknown): TsState {
+  const t = (raw ?? {}) as Record<string, unknown>;
+  const status = ["draft", "clarifying", "stepping", "resolved", "exhausted"].includes(
+    t.status as string,
+  )
+    ? (t.status as TsStatus)
+    : "draft";
+  return {
+    problem: typeof t.problem === "string" ? t.problem : "",
+    status,
+    clarifyCount: Number(t.clarifyCount ?? 0),
+    stepCount: Number(t.stepCount ?? 0),
+  };
+}
+
+export async function readTsRun(
+  uid: string,
+  runId: string,
+): Promise<{ run: RunSummary; state: TsState; turns: TsTurn[] } | null> {
+  const ref = runs(uid).doc(runId);
+  const [doc, turns] = await Promise.all([ref.get(), ref.collection("turns").orderBy("seq").get()]);
+  if (!doc.exists || doc.get("agent") !== "troubleshooting") return null;
+  const data = doc.data() ?? {};
+  return {
+    run: {
+      id: doc.id,
+      agent: "troubleshooting",
+      title: String(data.title ?? "Untitled"),
+      updatedAt: millis(data.updatedAt),
+      tokensUsed: Number(data.tokensUsed ?? 0),
+      turnCount: Number(data.turnCount ?? 0),
+    },
+    state: tsState(data.ts),
+    turns: turns.docs.map((t) => {
+      const { createdAt: _c, ...rest } = t.data();
+      return { ...(rest as TsTurnBody), id: t.id, seq: Number(rest.seq ?? 0) };
+    }),
+  };
+}
+
+/**
+ * Claims an existing Troubleshooting run for one request, so a double submit cannot run
+ * two turns at once. null when the run does not exist, is not this user's or another
+ * agent's; "busy" while another request holds it.
+ */
+export async function claimTsRun(uid: string, runId: string): Promise<TsState | "busy" | null> {
+  const ref = runs(uid).doc(runId);
+  return plugentDb().runTransaction(async (tx) => {
+    const doc = await tx.get(ref);
+    if (!doc.exists || doc.get("agent") !== "troubleshooting") return null;
+    const running = doc.get("running");
+    if (running && Date.now() - millis(running) < TS_STALE_MS) return "busy";
+    tx.update(ref, { running: FieldValue.serverTimestamp() });
+    return tsState(doc.get("ts"));
+  });
+}
+
+export async function releaseTsRun(uid: string, runId: string): Promise<void> {
+  await runs(uid)
+    .doc(runId)
+    .update({ running: FieldValue.delete() })
+    .catch((err) => console.error("[troubleshooting] release failed", err));
+}
+
+/** The latest photo sent in the run, as the model reads it, or null. */
+export async function readTsPhoto(
+  uid: string,
+  runId: string,
+): Promise<{ mediaType: string; data: string } | null> {
+  const snap = await runs(uid)
+    .doc(runId)
+    .collection("photos")
+    .orderBy("createdAt", "desc")
+    .limit(1)
+    .get();
+  const d = snap.docs[0]?.data();
+  return d && typeof d.data === "string" ? { mediaType: String(d.mediaType), data: d.data } : null;
+}
+
+/**
+ * Writes one request's turns and the run's new state together, and releases the claim.
+ * A new run (runId null) is created here, titled `title`. Returns the run id and the ids
+ * given to the turns, in order.
+ */
+export async function commitTsTurns(
+  uid: string,
+  runId: string | null,
+  args: {
+    title: string;
+    state: TsState;
+    tokens: number;
+    turns: TsTurnBody[];
+    /** The step the user just answered, collapsed to its outcome. */
+    stepDone: { stepId: string; kind: StepOutcomeKind; label: string } | null;
+    photo: { mediaType: string; data: string } | null;
+    nextSeq: number;
+  },
+): Promise<{ runId: string; turnIds: string[] }> {
+  const db = plugentDb();
+  const runRef = runId ? runs(uid).doc(runId) : runs(uid).doc();
+  const now = FieldValue.serverTimestamp();
+  const batch = db.batch();
+  if (runId) {
+    batch.update(runRef, {
+      ts: args.state,
+      updatedAt: now,
+      tokensUsed: FieldValue.increment(args.tokens),
+      turnCount: FieldValue.increment(1),
+      running: FieldValue.delete(),
+    });
+  } else {
+    batch.set(runRef, {
+      agent: "troubleshooting",
+      title: titleFrom(args.title),
+      ts: args.state,
+      createdAt: now,
+      updatedAt: now,
+      tokensUsed: args.tokens,
+      turnCount: 1,
+    });
+  }
+  if (args.stepDone) {
+    batch.update(runRef.collection("turns").doc(args.stepDone.stepId), {
+      done: { kind: args.stepDone.kind, label: args.stepDone.label },
+    });
+  }
+  const turnIds = args.turns.map((turn, i) => {
+    const ref = runRef.collection("turns").doc();
+    batch.set(ref, { ...turn, seq: args.nextSeq + i, createdAt: now });
+    return ref.id;
+  });
+  if (args.photo) {
+    batch.set(runRef.collection("photos").doc(), { ...args.photo, createdAt: now });
+  }
+  await batch.commit();
+  return { runId: runRef.id, turnIds };
 }
