@@ -24,6 +24,23 @@ const PROMISES = [
   },
 ];
 
+const SEBTEMBER = "https://sebtember.app";
+
+const PRICING = [
+  {
+    title: "Pay per run",
+    text: "Each run uses tokens for the work it does. Reading a finished result again is free, and a run that fails is not charged.",
+  },
+  {
+    title: "One balance with Sebtember",
+    text: "Plugent spends the same token balance as your Sebtember account. Top up once and use it in both.",
+  },
+  {
+    title: "Start free, share with your team",
+    text: "New Sebtember accounts get a free starting balance. A company can share its balance with the team, with a monthly cap per person.",
+  },
+];
+
 /** A screenshot of the app, framed like a browser window. */
 function Screen({ src, alt, priority = false }: { src: string; alt: string; priority?: boolean }) {
   return (
@@ -53,9 +70,14 @@ export default async function Landing() {
     <div className="min-h-dvh overflow-x-hidden">
       <header className="mx-auto flex max-w-[1080px] items-center justify-between px-4 py-5 sm:px-8">
         <Logo className="h-8" />
-        <a href="#sign-in" className="text-[15px] font-semibold text-link">
-          Sign in
-        </a>
+        <nav className="flex items-center gap-5 text-[15px] font-semibold">
+          <a href="#pricing" className="text-ink2 hover:text-ink">
+            Pricing
+          </a>
+          <a href="#sign-in" className="text-link">
+            Sign in
+          </a>
+        </nav>
       </header>
 
       <main className="mx-auto flex max-w-[1080px] flex-col gap-24 px-4 pt-8 pb-16 sm:px-8 sm:pt-12">
@@ -144,6 +166,33 @@ export default async function Landing() {
           />
         </section>
 
+        <section id="pricing" className="flex scroll-mt-8 flex-col gap-6">
+          <div className="flex flex-col gap-2">
+            <h2 className="text-[32px] leading-[38px] font-bold tracking-[-0.02em]">Pricing</h2>
+            <p className="text-[17px] leading-[26px] text-ink2">
+              No subscription and no seats. You pay for the work an agent does, nothing else.
+            </p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-3">
+            {PRICING.map((p) => (
+              <div
+                key={p.title}
+                className="flex flex-col gap-2 rounded-card bg-card p-6 shadow-card"
+              >
+                <h3 className="text-[19px] font-bold">{p.title}</h3>
+                <p className="text-[15px] leading-[23px] text-ink2">{p.text}</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-[15px] leading-[23px] text-ink2">
+            Token prices in your currency, with VAT, are on{" "}
+            <a href={`${SEBTEMBER}/usage`} className="font-semibold text-link">
+              sebtember.app
+            </a>{" "}
+            when you top up.
+          </p>
+        </section>
+
         <section className="flex flex-col items-start gap-4 rounded-card bg-[#16152E] p-6 text-white sm:p-10">
           <h2 className="text-[30px] leading-[36px] font-bold tracking-[-0.02em]">
             Plug in your knowledge. Pick a task.
@@ -161,15 +210,32 @@ export default async function Landing() {
         </section>
       </main>
 
-      <footer className="mx-auto flex max-w-[1080px] flex-wrap items-center justify-between gap-3 px-4 pb-10 text-[13px] text-ink2 sm:px-8">
-        <span>
-          Plugent runs on{" "}
-          <a href="https://sebtember.app" className="font-semibold text-link">
-            sebtember.app
-          </a>
-          , your wiki for AI.
-        </span>
-        <span>Build {process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "local"}</span>
+      <footer className="mx-auto flex max-w-[1080px] flex-col gap-3 px-4 pb-10 text-[13px] leading-[20px] text-ink2 sm:px-8">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <span>
+            Plugent runs on{" "}
+            <a href={SEBTEMBER} className="font-semibold text-link">
+              sebtember.app
+            </a>
+            , your wiki for AI.
+          </span>
+          <nav aria-label="Legal" className="flex gap-4 font-semibold">
+            <a href={`${SEBTEMBER}/terms`} className="hover:text-ink">
+              Terms of Service
+            </a>
+            <a href={`${SEBTEMBER}/privacy`} className="hover:text-ink">
+              Privacy Policy
+            </a>
+            <a href={`${SEBTEMBER}/security`} className="hover:text-ink">
+              Security
+            </a>
+          </nav>
+        </div>
+        <p>
+          You sign in to Plugent with your Sebtember account, so Sebtember's Terms of Service and
+          Privacy Policy apply. Build{" "}
+          {process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "local"}
+        </p>
       </footer>
     </div>
   );
