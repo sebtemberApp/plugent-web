@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AskPanel } from "@/components/AskPanel";
 
 type Knowledge =
   | {
@@ -10,8 +11,9 @@ type Knowledge =
     }
   | { error: string; connectUrl: string | null };
 
-/** The Sebtember catalogues Plugent may read, and the link to change that choice. */
-export function KnowledgePanel() {
+/** The Sebtember catalogues Plugent may read, the link to change that choice, and (once
+ *  there is something to read) the Ask agent. */
+export function KnowledgePanel({ onSpent }: { onSpent?: (balanceAfter: number) => void }) {
   const [data, setData] = useState<Knowledge | null>(null);
 
   useEffect(() => {
@@ -32,30 +34,35 @@ export function KnowledgePanel() {
     </a>
   ) : null;
 
+  const readable = !("error" in data) && data.connected && data.catalogues.length > 0;
+
   return (
-    <div className="space-y-3 rounded-xl border border-line p-4 text-sm">
-      <p className="font-semibold">Your Sebtember knowledge</p>
-      {"error" in data ? (
-        <p>Catalogues unavailable ({data.error}).</p>
-      ) : !data.connected ? (
-        <p className="text-muted">
-          Plugent can't read any of your catalogues yet. Choose which ones on Sebtember.
-        </p>
-      ) : data.catalogues.length === 0 ? (
-        <p className="text-muted">Connected, but no catalogues are ticked.</p>
-      ) : (
-        <ul className="space-y-1">
-          {data.catalogues.map((c) => (
-            <li key={c.id} className="flex justify-between gap-4">
-              <span className="truncate">{c.name}</span>
-              <span className="shrink-0 text-muted">
-                {c.files === null ? "?" : `${c.files}${c.more ? "+" : ""}`} files
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-      {link}
-    </div>
+    <>
+      <div className="space-y-3 rounded-xl border border-line p-4 text-sm">
+        <p className="font-semibold">Your Sebtember knowledge</p>
+        {"error" in data ? (
+          <p>Catalogues unavailable ({data.error}).</p>
+        ) : !data.connected ? (
+          <p className="text-muted">
+            Plugent can't read any of your catalogues yet. Choose which ones on Sebtember.
+          </p>
+        ) : data.catalogues.length === 0 ? (
+          <p className="text-muted">Connected, but no catalogues are ticked.</p>
+        ) : (
+          <ul className="space-y-1">
+            {data.catalogues.map((c) => (
+              <li key={c.id} className="flex justify-between gap-4">
+                <span className="truncate">{c.name}</span>
+                <span className="shrink-0 text-muted">
+                  {c.files === null ? "?" : `${c.files}${c.more ? "+" : ""}`} files
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {link}
+      </div>
+      {readable && <AskPanel onSpent={onSpent} />}
+    </>
   );
 }

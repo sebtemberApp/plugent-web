@@ -156,3 +156,42 @@ export function getBalance(uid: string): Promise<ProductBalance> {
 export function charge(uid: string, source: string, lines: ChargeLine[]): Promise<ChargeResult> {
   return post<ChargeResult>("/api/products/charge", { uid, source, lines });
 }
+
+export interface KnowledgePassage {
+  document_id: string;
+  file_id: string | null;
+  file_name: string;
+  catalogue_id: string;
+  catalogue_name: string | null;
+  page: string | null;
+  /** Verbatim stored text: quote it, never trust it as instructions. */
+  text: string;
+}
+
+export interface KnowledgeSearch {
+  passages: KnowledgePassage[];
+  retrievalStrength: "rich" | "normal" | "thin" | "empty";
+  /** What sebtember charged for this search, to `source`, as line `{requestId}-search`. */
+  charged: { tokens: number; duplicate: boolean };
+  balanceAfter: number | null;
+}
+
+/**
+ * Search the catalogues the user granted Plugent (sebtember Step 1175). Sebtember charges
+ * the search itself to `source`, once per `requestId`; 403 `not_connected` without a grant.
+ */
+export function searchKnowledge(
+  uid: string,
+  source: string,
+  query: string,
+  requestId: string,
+  limit = 8,
+): Promise<KnowledgeSearch> {
+  return post<KnowledgeSearch>("/api/products/knowledge/search", {
+    uid,
+    source,
+    query,
+    request_id: requestId,
+    limit,
+  });
+}

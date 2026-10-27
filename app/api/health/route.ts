@@ -29,6 +29,12 @@ export function GET() {
     settings,
     sessionSecretLongEnough: (process.env.PLUGENT_SESSION_SECRET ?? "").length >= 32,
     serviceAccountJsonParses: parses(process.env.PLUGENT_SERVICE_ACCOUNT_JSON),
+    // The Ask agent's model: an AI Gateway key, else Vercel's OIDC token on a deployment.
+    aiGateway: process.env.AI_GATEWAY_API_KEY?.trim()
+      ? "key"
+      : process.env.VERCEL_OIDC_TOKEN || process.env.VERCEL
+        ? "oidc"
+        : "none",
   });
 }
 

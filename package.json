@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "ai": "^7.0.154",
     "firebase": "^12.12.1",
     "google-auth-library": "^10.6.2",
     "next": "16.2.11",

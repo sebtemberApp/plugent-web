@@ -103,7 +103,13 @@ export function AccountPanel() {
           Sign out
         </button>
       </div>
-      {balance && !("error" in balance) && <KnowledgePanel />}
+      {balance && !("error" in balance) && (
+        <KnowledgePanel
+          onSpent={(after) =>
+            setBalance((b) => (b && !("error" in b) ? { ...b, balance: after } : b))
+          }
+        />
+      )}
     </div>
   );
 }
