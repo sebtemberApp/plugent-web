@@ -53,10 +53,45 @@ function settings() {
   return { origin, audience, credentials: JSON.parse(key) };
 }
 
-async function post<T>(path: string, body: unknown): Promise<T> {
+async function mintIdToken(): Promise<{ origin: string; idToken: string }> {
   const { origin, audience, credentials } = settings();
   const client = await new GoogleAuth({ credentials }).getIdTokenClient(audience);
-  const idToken = await client.idTokenProvider.fetchIdToken(audience);
+  return { origin, idToken: await client.idTokenProvider.fetchIdToken(audience) };
+}
+
+/**
+ * What sebtember will see: the claims of the ID token Plugent sends (never the token), and
+ * sebtember's answer to a balance read for `uid`. For `/api/diagnose` only.
+ */
+export async function diagnoseProductApi(uid: string) {
+  const { origin, idToken } = await mintIdToken();
+  const payload = idToken.split(".")[1] ?? "";
+  const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+  const res = await fetch(new URL("/api/products/balance", origin), {
+    method: "POST",
+    headers: { authorization: `Bearer ${idToken}`, "content-type": "application/json" },
+    body: JSON.stringify({ uid }),
+    cache: "no-store",
+    redirect: "manual",
+  });
+  return {
+    url: new URL("/api/products/balance", origin).toString(),
+    token: {
+      aud: claims.aud,
+      email: claims.email,
+      email_verified: claims.email_verified,
+      iss: claims.iss,
+    },
+    sebtember: {
+      status: res.status,
+      location: res.headers.get("location"),
+      body: (await res.text()).slice(0, 300),
+    },
+  };
+}
+
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const { origin, idToken } = await mintIdToken();
   const res = await fetch(new URL(path, origin), {
     method: "POST",
     headers: { authorization: `Bearer ${idToken}`, "content-type": "application/json" },
