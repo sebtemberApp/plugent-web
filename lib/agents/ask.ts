@@ -36,6 +36,15 @@ const MAX_PASSAGES = 8;
 const MAX_ANSWER_TOKENS = 2000;
 const ANSWER_TIMEOUT_MS = 45_000;
 
+/**
+ * The composer's mode, as in Sebtember chat. "deep" asks the model to reason longer
+ * (OpenAI `reasoningEffort: "high"`, which the gateway forwards); its reasoning tokens
+ * count as output, so it gets a larger output cap and a longer timeout, and costs more.
+ */
+export type AskMode = "standard" | "deep";
+const DEEP_MAX_ANSWER_TOKENS = 8000;
+const DEEP_ANSWER_TIMEOUT_MS = 75_000;
+
 /** Divisors on the gateway's usage (billed = raw / factor; < 1 marks up). */
 const DISCOUNTS = { input: 6, reasoning: 0.5, output: 0.5 };
 
@@ -127,7 +136,11 @@ export class AskRefused extends Error {
   }
 }
 
-export async function runAsk(uid: string, question: string): Promise<AskResult> {
+export async function runAsk(
+  uid: string,
+  question: string,
+  mode: AskMode = "standard",
+): Promise<AskResult> {
   const wallet = await getBalance(uid);
   if (wallet.balance < wallet.minimum) throw new AskRefused("low_balance");
   const runId = randomUUID();
@@ -156,8 +169,13 @@ export async function runAsk(uid: string, question: string): Promise<AskResult> 
     model: ASK_MODEL,
     instructions: INSTRUCTIONS,
     prompt: `${passagesBlock(search.passages)}\n\nQuestion: ${question}`,
-    maxOutputTokens: MAX_ANSWER_TOKENS,
-    timeout: ANSWER_TIMEOUT_MS,
+    ...(mode === "deep"
+      ? {
+          maxOutputTokens: DEEP_MAX_ANSWER_TOKENS,
+          timeout: DEEP_ANSWER_TIMEOUT_MS,
+          providerOptions: { openai: { reasoningEffort: "high" } },
+        }
+      : { maxOutputTokens: MAX_ANSWER_TOKENS, timeout: ANSWER_TIMEOUT_MS }),
   });
 
   const answerTokens = billedAnswerTokens(result.totalUsage);

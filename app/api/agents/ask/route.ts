@@ -1,5 +1,5 @@
 /**
- * POST /api/agents/ask — the Chat agent (`lib/agents/ask.ts`). Body `{question, runId?}`;
+ * POST /api/agents/ask — the Chat agent (`lib/agents/ask.ts`). Body `{question, runId?, mode?}`;
  * the user is the session's, never the body's. The answered question is saved into the
  * run (a new one when `runId` is absent) and the response carries its `runId`.
  */
@@ -20,13 +20,14 @@ export async function POST(req: NextRequest) {
   if (question.length === 0 || question.length > MAX_QUESTION_CHARS) {
     return NextResponse.json({ error: "invalid_question" }, { status: 400 });
   }
+  const mode = body?.mode === "deep" ? "deep" : "standard";
   const runId = body?.runId == null ? null : String(body.runId);
   // Checked before any money is spent: a stale or foreign run id is refused for free.
   if (runId !== null && !(isRunId(runId) && (await runExists(user.uid, runId)))) {
     return NextResponse.json({ error: "run_not_found" }, { status: 404 });
   }
   try {
-    const result = await runAsk(user.uid, question);
+    const result = await runAsk(user.uid, question, mode);
     // The answer is paid for, so a failed save still returns it, without a run id.
     const savedRunId = await saveTurn(user.uid, runId, "chat", question, result).catch((err) => {
       console.error(`[ask] save failed uid=${user.uid}`, err);

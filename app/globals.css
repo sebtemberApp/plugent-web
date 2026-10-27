@@ -137,9 +137,12 @@ a.text-link,
   color: var(--link);
 }
 
-:focus-visible {
-  outline: 2px solid var(--act);
-  outline-offset: 2px;
+/* In the base layer, so a utility (`outline-none` on the composer's textarea) can win. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--act);
+    outline-offset: 2px;
+  }
 }
 
 /* The logo has a navy and a light drawing; each theme shows one. */

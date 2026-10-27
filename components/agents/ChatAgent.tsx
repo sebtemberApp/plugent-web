@@ -3,13 +3,16 @@
 import { ArrowUp, BookOpen, Check, Copy, MessageSquareText } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useId, useState, useTransition } from "react";
+import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { sendFeedbackAction } from "@/app/actions/feedback";
 import { formatTokens, useBalance } from "@/components/shell/BalanceContext";
 import { AgentIcon } from "@/components/ui/AgentIcon";
+import type { AskMode } from "@/lib/agents/ask";
 import { agentById } from "@/lib/agents/registry";
 import type { StoredTurn } from "@/lib/runs";
+import { readStored, writeStored } from "@/lib/ui/stored";
 import { AnswerText } from "./AnswerText";
+import { ModePicker } from "./ModePicker";
 
 type Source = {
   n: number;
@@ -24,7 +27,7 @@ type Turn = {
   id: string;
   question: string;
   state:
-    | { kind: "pending" }
+    | { kind: "pending"; deep: boolean }
     | {
         kind: "answer";
         answer: string;
@@ -37,6 +40,7 @@ type Turn = {
 };
 
 const MAX_QUESTION_CHARS = 2000;
+const MODE_KEY = "plugent-chat-mode";
 const chat = agentById("chat");
 
 const ERRORS: Record<string, string> = {
@@ -85,6 +89,16 @@ export function ChatAgent({
   const [title, setTitle] = useState(initialTitle);
   const [turns, setTurns] = useState<Turn[]>(() => fromStored(initialTurns));
   const [question, setQuestion] = useState("");
+  // Standard or Deeper thinking; a mode, so it stays across questions, runs and reloads.
+  const [mode, setMode] = useState<AskMode>("standard");
+  useEffect(
+    () => setMode(readStored<AskMode>(MODE_KEY, "standard") === "deep" ? "deep" : "standard"),
+    [],
+  );
+  const changeMode = (next: AskMode) => {
+    setMode(next);
+    writeStored(MODE_KEY, next);
+  };
   const nextId = useRef(1);
 
   // Another run (or a new chat) opened from the sidebar: show it. The URL this page gave
@@ -111,7 +125,7 @@ export function ChatAgent({
     const q = question.trim();
     if (!q || busy) return;
     const id = `local-${nextId.current++}`;
-    setTurns((t) => [...t, { id, question: q, state: { kind: "pending" } }]);
+    setTurns((t) => [...t, { id, question: q, state: { kind: "pending", deep: mode === "deep" } }]);
     setQuestion("");
     const settle = (state: Turn["state"]) =>
       setTurns((t) => t.map((turn) => (turn.id === id ? { ...turn, state } : turn)));
@@ -119,7 +133,7 @@ export function ChatAgent({
       const res = await fetch("/api/agents/ask", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ question: q, runId }),
+        body: JSON.stringify({ question: q, runId, mode }),
       });
       const data = await res.json().catch(() => ({ error: `http_${res.status}` }));
       if (!res.ok) return settle({ kind: "error", code: String(data.error ?? res.status) });
@@ -214,9 +228,11 @@ export function ChatAgent({
             className="resize-none bg-transparent pt-1 text-[16px] leading-6 outline-none placeholder:text-ink2 focus-visible:outline-none"
           />
           <div className="flex items-center gap-2">
-            <span className="flex-1 text-[13px] text-ink2">
+            <ModePicker mode={mode} onChange={changeMode} disabled={busy} />
+            <span className="flex-1 truncate text-[13px] text-ink2 max-[520px]:hidden">
               Enter to send, Shift+Enter for a new line
             </span>
+            <span className="flex-1 min-[521px]:hidden" />
             <button
               type="submit"
               aria-label="Send"
@@ -242,7 +258,9 @@ function TurnView({ turn, runId }: { turn: Turn; runId: string | null }) {
       {s.kind === "pending" && (
         <div className="flex items-center gap-3 rounded-card bg-card px-6 py-5 text-[15px] text-ink2 shadow-card">
           <span className="size-2 animate-pulse rounded-full bg-act" />
-          Searching your catalogues and writing the answer…
+          {s.deep
+            ? "Searching your catalogues and thinking it through…"
+            : "Searching your catalogues and writing the answer…"}
         </div>
       )}
       {s.kind === "error" && (
