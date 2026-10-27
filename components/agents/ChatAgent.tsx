@@ -195,8 +195,8 @@ export function ChatAgent({
             </p>
           </div>
         )}
-        {turns.map((turn) => (
-          <TurnView key={turn.id} turn={turn} runId={runId} />
+        {turns.map((turn, i) => (
+          <TurnView key={turn.id} turn={turn} runId={runId} first={i === 0} />
         ))}
         <div ref={end} />
       </div>
@@ -248,11 +248,22 @@ export function ChatAgent({
   );
 }
 
-function TurnView({ turn, runId }: { turn: Turn; runId: string | null }) {
+function TurnView({
+  turn,
+  runId,
+  first,
+}: {
+  turn: Turn;
+  runId: string | null;
+  /** A follow-up question gets extra room above it, to set it apart from the last answer. */
+  first: boolean;
+}) {
   const s = turn.state;
   return (
     <>
-      <div className="max-w-[80%] self-end rounded-list bg-fill2 px-4 py-3 text-[16px] leading-6 whitespace-pre-wrap">
+      <div
+        className={`max-w-[80%] self-end rounded-list bg-fill2 px-4 py-3 text-[16px] leading-6 whitespace-pre-wrap ${first ? "" : "mt-7"}`}
+      >
         {turn.question}
       </div>
       {s.kind === "pending" && (
