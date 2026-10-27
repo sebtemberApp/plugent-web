@@ -1,12 +1,12 @@
 /**
- * The signed-in user's Sebtember catalogues that Plugent may read (ticked on
- * sebtember.app's /connect/plugent), each with its file count, split into the user's own
- * and the Library ones (other users' published catalogues, sebtember Step 1176).
+ * The signed-in user's Sebtember catalogues for Plugent. Every catalogue they can open is
+ * connected by default; the one control is Pause, and every agent skips a paused one
+ * (sebtember Step 1178). Each comes with its file count, split into the user's own and the
+ * Library ones (other users' published catalogues, sebtember Step 1176).
  * Read by `/api/knowledge` and the Knowledge page.
  */
 import "server-only";
 import {
-  connectUrl,
   getKnowledgeCatalogues,
   getKnowledgeSources,
   SebtemberApiError,
@@ -19,34 +19,39 @@ export interface KnowledgeCatalogue {
   id: string;
   name: string;
   library: boolean;
+  paused: boolean;
   files: number | null;
   more: boolean;
 }
 
-export type Knowledge =
-  | { connected: boolean; catalogues: KnowledgeCatalogue[]; connectUrl: string | null }
-  | { error: string; connectUrl: string | null };
+export type Knowledge = { catalogues: KnowledgeCatalogue[] } | { error: string };
 
-export async function readKnowledge(uid: string, returnTo: string): Promise<Knowledge> {
-  const link = connectUrl(returnTo);
+export async function readKnowledge(uid: string): Promise<Knowledge> {
   try {
     const { connected, catalogues } = await getKnowledgeCatalogues(uid);
+    // An older sebtember still asks for ticks: nothing to show until it is updated.
+    if (!connected) return { error: "sebtember_update_pending" };
     const withCounts = await Promise.all(
       catalogues.map(async (c) => {
-        const page = await getKnowledgeSources(uid, c.id, COUNT_PAGE).catch(() => null);
+        const paused = c.paused === true;
+        // A paused catalogue's files are not readable; its count is not shown.
+        const page = paused
+          ? null
+          : await getKnowledgeSources(uid, c.id, COUNT_PAGE).catch(() => null);
         return {
           id: c.id,
           name: c.name,
           library: c.library === true,
+          paused,
           files: page ? page.sources.length : null,
           more: page ? page.nextCursor !== null : false,
         };
       }),
     );
-    return { connected, catalogues: withCounts, connectUrl: link };
+    return { catalogues: withCounts };
   } catch (err) {
     if (!(err instanceof SebtemberApiError)) console.error("[knowledge]", err);
-    return { error: err instanceof SebtemberApiError ? err.code : "unavailable", connectUrl: link };
+    return { error: err instanceof SebtemberApiError ? err.code : "unavailable" };
   }
 }
 

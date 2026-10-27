@@ -44,7 +44,7 @@ export default function Home() {
         <span className="flex min-w-0 flex-col">
           <span className="text-[15px] font-bold">Your knowledge</span>
           <span className="text-[13px] text-ink2">
-            See which catalogues the agents read, or connect more on Sebtember.
+            See the catalogues your agents read, and pause any they should skip.
           </span>
         </span>
       </Link>

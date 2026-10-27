@@ -104,7 +104,8 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 }
 
 export interface KnowledgeCatalogues {
-  /** false = the user never connected Plugent on sebtember.app's /connect/plugent. */
+  /** Always true since sebtember Step 1178 (every catalogue is connected by default); false
+   *  only from an older sebtember, where the user never ticked catalogues for Plugent. */
   connected: boolean;
   /** `library` (sebtember Step 1176): another user's published catalogue the user subscribes
    *  to. Absent (an older sebtember) reads as the user's own. */
@@ -115,6 +116,8 @@ export interface KnowledgeCatalogues {
     /** sebtember Step 1177: `null` = the user's own catalogue; else whose it is, by the
      *  admin's display name (`name: null` when they set none). Absent on an older sebtember. */
     owner?: { name: string | null } | null;
+    /** sebtember Step 1178: the user paused it for Plugent, so no agent reads it. */
+    paused?: boolean;
   }[];
 }
 
@@ -130,12 +133,12 @@ export interface KnowledgeSourcesPage {
   nextCursor: string | null;
 }
 
-/** The catalogues the user ticked for Plugent (sebtember Step 1174). */
+/** Every catalogue the user can open, each marked paused or not (sebtember Step 1178). */
 export function getKnowledgeCatalogues(uid: string): Promise<KnowledgeCatalogues> {
   return post<KnowledgeCatalogues>("/api/products/knowledge/catalogues", { uid });
 }
 
-/** One page of a granted catalogue's files (metadata only). */
+/** One page of a catalogue's files (metadata only); a paused one is 404. */
 export function getKnowledgeSources(
   uid: string,
   catalogueId: string,
@@ -148,14 +151,14 @@ export function getKnowledgeSources(
   });
 }
 
-/** Where the user ticks catalogues for Plugent; sebtember sends them back to `returnTo`
- *  only when its origin is in sebtember's PRODUCT_RETURN_ORIGINS. */
-export function connectUrl(returnTo: string): string | null {
-  const origin = process.env.SEBTEMBER_API_ORIGIN?.trim();
-  if (!origin) return null;
-  const url = new URL("/connect/plugent", origin);
-  url.searchParams.set("return", returnTo);
-  return url.toString();
+/** Pause or resume one catalogue for Plugent (sebtember Step 1178): every agent skips a
+ *  paused one. 404 `not_found` when the user cannot open it. */
+export function setCataloguePaused(
+  uid: string,
+  catalogueId: string,
+  paused: boolean,
+): Promise<{ catalogue_id: string; paused: boolean }> {
+  return post("/api/products/knowledge/pause", { uid, catalogue_id: catalogueId, paused });
 }
 
 export function getBalance(uid: string): Promise<ProductBalance> {
@@ -186,8 +189,8 @@ export interface KnowledgeSearch {
 }
 
 /**
- * Search the catalogues the user granted Plugent (sebtember Step 1175). Sebtember charges
- * the search itself to `source`, once per `requestId`; 403 `not_connected` without a grant.
+ * Search the user's catalogues, minus the paused ones (sebtember Steps 1175, 1178). Sebtember
+ * charges the search itself to `source`, once per `requestId`.
  */
 export function searchKnowledge(
   uid: string,

@@ -64,7 +64,7 @@ const chat = agentById("chat");
 
 const ERRORS: Record<string, string> = {
   low_balance: "Your Sebtember balance is too low for this. Top it up from the account menu.",
-  not_connected: "Plugent isn't connected to your Sebtember catalogues yet.",
+  not_connected: "Plugent can't read your Sebtember catalogues just now. Try again in a moment.",
   invalid_question: "Type a question first (up to 2,000 characters).",
   unauthorized: "Your session has ended. Reload the page to sign in again.",
   run_not_found: "This chat was deleted. Start a new chat to ask again.",
@@ -89,7 +89,7 @@ function fromStored(turns: StoredTurn[]): Turn[] {
 
 /**
  * The Chat agent (milestone 3's Ask, restyled): each question is answered from the
- * connected catalogues, with its sources as cards, and saved into the run. The first
+ * catalogues (minus the paused ones), with its sources as cards, and saved into the run. The first
  * answer of a new chat gives it its URL and a row in the sidebar. Questions are still
  * answered on their own: the model does not see the earlier turns.
  */
@@ -217,8 +217,8 @@ export function ChatAgent({
               <AgentIcon agent={chat} size="card" />
               <h2 className="text-[22px] font-bold">Ask your knowledge</h2>
               <p className="max-w-[440px] text-[15px] leading-[22px] text-ink2">
-                The answer comes only from the Sebtember catalogues you connected, with the
-                documents it used. Each question is answered on its own.
+                The answer comes only from your Sebtember catalogues (paused ones are skipped), with
+                the documents it used. Each question is answered on its own.
               </p>
             </div>
           )}
@@ -310,21 +310,16 @@ function TurnView({
           <p className="text-[15px] text-danger">
             {ERRORS[s.code] ?? `Something went wrong (${s.code}). Try again.`}
           </p>
-          {s.code === "not_connected" && (
-            <Link href="/knowledge" className="text-link text-[15px] font-semibold">
-              Connect catalogues
-            </Link>
-          )}
         </div>
       )}
       {s.kind === "not_covered" && (
         <article className="flex flex-col gap-3 rounded-card bg-card px-6 py-5 shadow-card">
           <p className="text-[16px] leading-[26px]">
-            Your connected catalogues don't seem to cover this. Try other words, or{" "}
+            Your catalogues don't seem to cover this. Try other words, or check in{" "}
             <Link href="/knowledge" className="text-link font-semibold">
-              connect more catalogues
-            </Link>
-            .
+              Knowledge
+            </Link>{" "}
+            that the right catalogue isn't paused.
           </p>
           <AnswerFooter owners={[]} runId={runId} question={turn.question} answer="" />
         </article>
