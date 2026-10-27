@@ -9,8 +9,8 @@ import type { RunSummary } from "@/lib/runs";
 import { RunList } from "./RunList";
 
 /**
- * One agent in the sidebar: its heading folds the group; inside, "+ New" starts a new
- * session and the agent's runs follow, newest first. An agent that is not built yet is a
+ * One agent in the sidebar: "+ New" under the heading always starts a new session; the
+ * heading's chevron folds the agent's runs (newest first) below it. An agent that is not built yet is a
  * heading with "Soon" and nothing to fold.
  */
 export function AgentGroup({
@@ -64,31 +64,35 @@ export function AgentGroup({
           className={`ml-auto text-ink2 transition-transform ${open ? "" : "-rotate-90"}`}
         />
       </button>
-      {open && (
-        <div id={panel} className="mb-1 ml-[22px] flex flex-col border-hair border-l-[0.5px] pl-2">
-          <Link
-            href={agent.href}
-            onClick={onNavigate}
-            aria-current={fresh ? "page" : undefined}
-            className={`flex h-9 items-center gap-2 rounded-chip pl-2.5 text-[14px] ${
-              fresh ? "bg-sel font-semibold text-ink" : "text-ink2 hover:bg-fill1 hover:text-ink"
-            }`}
-          >
-            <Plus aria-hidden size={16} />
-            New
-            <span className="sr-only">{agent.name.toLowerCase()}</span>
-          </Link>
-          {runs === null ? (
-            <p className="py-1 pl-2.5 text-[12px] text-ink2">History unavailable just now</p>
-          ) : (
-            <RunList
-              runs={runs.filter((r) => r.agent === agent.id)}
-              hrefFor={(id) => `${agent.href}/${id}`}
-              onNavigate={onNavigate}
-            />
-          )}
-        </div>
-      )}
+      <div className="mb-1 ml-[22px] flex flex-col border-hair border-l-[0.5px] pl-2">
+        {/* "+ New" stays visible when the group is folded, as in sebtember.app's sidebar;
+            the chevron folds only the runs. */}
+        <Link
+          href={agent.href}
+          onClick={onNavigate}
+          aria-current={fresh ? "page" : undefined}
+          className={`flex h-9 items-center gap-2 rounded-chip pl-2.5 text-[14px] ${
+            fresh ? "bg-sel font-semibold text-ink" : "text-ink2 hover:bg-fill1 hover:text-ink"
+          }`}
+        >
+          <Plus aria-hidden size={16} />
+          New
+          <span className="sr-only">{agent.name.toLowerCase()}</span>
+        </Link>
+        {open && (
+          <div id={panel}>
+            {runs === null ? (
+              <p className="py-1 pl-2.5 text-[12px] text-ink2">History unavailable just now</p>
+            ) : (
+              <RunList
+                runs={runs.filter((r) => r.agent === agent.id)}
+                hrefFor={(id) => `${agent.href}/${id}`}
+                onNavigate={onNavigate}
+              />
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
