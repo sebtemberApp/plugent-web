@@ -38,7 +38,7 @@ export const AGENTS: readonly AgentEntry[] = [
     name: "Specification",
     description: "Name a product and get its parameters, installation and operation notes.",
     href: "/agents/specification",
-    available: false,
+    available: true,
     accent: "a-spec",
   },
   {
@@ -46,7 +46,7 @@ export const AGENTS: readonly AgentEntry[] = [
     name: "Quotation",
     description: "Turn a request into a quotation drafted from your documents.",
     href: "/agents/quotation",
-    available: false,
+    available: true,
     accent: "a-quo",
   },
   {

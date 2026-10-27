@@ -112,6 +112,24 @@ export async function runExists(uid: string, runId: string): Promise<boolean> {
 }
 
 /**
+ * The run's agent and the text its first turn started with (a specification's subject),
+ * or null when the run does not exist (or is not this user's).
+ */
+export async function runStart(
+  uid: string,
+  runId: string,
+): Promise<{ agent: AgentId; first: string | null } | null> {
+  const ref = runs(uid).doc(runId);
+  const [doc, first] = await Promise.all([
+    ref.get(),
+    ref.collection("turns").orderBy("createdAt").limit(1).get(),
+  ]);
+  if (!doc.exists) return null;
+  const question = first.docs[0]?.get("question");
+  return { agent: doc.get("agent"), first: typeof question === "string" ? question : null };
+}
+
+/**
  * Saves one answered question: into `runId`, or into a new run titled from the question
  * when `runId` is null. Returns the run id. The run and its turn are written together.
  */

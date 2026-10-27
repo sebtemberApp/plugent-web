@@ -58,16 +58,82 @@ type Turn = {
 };
 
 const MAX_QUESTION_CHARS = 2000;
-const chat = agentById("chat");
 
-const ERRORS: Record<string, string> = {
-  low_balance: "Your Sebtember balance is too low for this. Top it up from the account menu.",
-  not_connected: "Plugent can't read your Sebtember catalogues just now. Try again in a moment.",
-  agent_off: "Chat is turned off. Turn it on in All agents to ask again.",
-  invalid_question: "Type a question first (up to 2,000 characters).",
-  unauthorized: "Your session has ended. Reload the page to sign in again.",
-  run_not_found: "This chat was deleted. Start a new chat to ask again.",
+/** The agents that run as a thread of typed requests and answer cards. */
+export type ThreadAgent = "chat" | "specification" | "quotation";
+
+/** What differs between the thread agents: where a request goes, and the words around it. */
+const UI: Record<
+  ThreadAgent,
+  {
+    body: (text: string, runId: string | null, mode: AskMode) => object;
+    endpoint: string;
+    newTitle: string;
+    emptyTitle: string;
+    emptyText: string;
+    placeholder: string;
+    followUp: string;
+    pending: string;
+    unit: [string, string];
+    /** Source cards under the answer; a specification cites no files, so it shows none. */
+    sourceCards: boolean;
+    modes: boolean;
+  }
+> = {
+  chat: {
+    endpoint: "/api/agents/ask",
+    body: (question, runId, mode) => ({ question, runId, mode }),
+    newTitle: "New chat",
+    emptyTitle: "Ask your knowledge",
+    emptyText:
+      "The answer comes only from your Sebtember catalogues (paused ones are skipped), with the documents it used. Each question is answered on its own.",
+    placeholder: "Ask a question about your documents",
+    followUp: "Ask a question about your documents",
+    pending: "Searching your catalogues and writing the answer…",
+    unit: ["question", "questions"],
+    sourceCards: true,
+    modes: true,
+  },
+  specification: {
+    endpoint: "/api/agents/spec",
+    body: (text, runId) => ({ agent: "specification", text, runId }),
+    newTitle: "New specification",
+    emptyTitle: "Write a specification",
+    emptyText:
+      "Name one device or material. You get its parameters, specification, installation and operation notes, drafted from your Sebtember catalogues.",
+    placeholder: "Name a device or material, e.g. 12 kW air-to-water heat pump",
+    followUp: "Refine it, e.g. add the noise data at night mode",
+    pending: "Reading your catalogues and drafting the specification…",
+    unit: ["request", "requests"],
+    sourceCards: false,
+    modes: false,
+  },
+  quotation: {
+    endpoint: "/api/agents/spec",
+    body: (text, runId) => ({ agent: "quotation", text, runId }),
+    newTitle: "New quotation",
+    emptyTitle: "Write a tender specification",
+    emptyText:
+      "Name one device or material. You get a brand-neutral tender specification to send to suppliers, drafted from your Sebtember catalogues.",
+    placeholder: "Name a device or material, e.g. ventilation unit 800 m³/h",
+    followUp: "Refine it, e.g. add a requirement for the filters",
+    pending: "Reading your catalogues and drafting the tender text…",
+    unit: ["request", "requests"],
+    sourceCards: false,
+    modes: false,
+  },
 };
+
+function errorText(code: string, name: string): string | undefined {
+  return {
+    low_balance: "Your Sebtember balance is too low for this. Top it up from the account menu.",
+    not_connected: "Plugent can't read your Sebtember catalogues just now. Try again in a moment.",
+    agent_off: `${name} is turned off. Turn it on in All agents to use it again.`,
+    invalid_question: "Type something first (up to 2,000 characters).",
+    unauthorized: "Your session has ended. Reload the page to sign in again.",
+    run_not_found: "This run was deleted. Start a new one to continue.",
+  }[code];
+}
 
 function fromStored(turns: StoredTurn[]): Turn[] {
   return turns.map((t) => ({
@@ -87,7 +153,8 @@ function fromStored(turns: StoredTurn[]): Turn[] {
 }
 
 /**
- * The Chat agent (milestone 3's Ask, restyled): each question is answered from the
+ * A thread agent: Chat, Specification or Quotation (`UI` holds what differs).
+ * Chat (milestone 3's Ask, restyled): each question is answered from the
  * catalogues (minus the paused ones), with its sources as cards, and saved into the run. The first
  * answer of a new chat gives it its URL and a row in the sidebar. Questions are still
  * answered on their own: the model does not see the earlier turns.
@@ -98,7 +165,9 @@ export function ChatAgent({
   initialTurns,
   off,
   defaultMode,
+  agent: agentId = "chat",
 }: {
+  agent?: ThreadAgent;
   runId: string | null;
   title: string | null;
   initialTurns: StoredTurn[];
@@ -107,6 +176,8 @@ export function ChatAgent({
   /** Chat settings' mode for a new chat. */
   defaultMode: AskMode;
 }) {
+  const ui = UI[agentId];
+  const agent = agentById(agentId);
   const { spent } = useBalance();
   const router = useRouter();
   const [runId, setRunId] = useState(initialRunId);
@@ -142,15 +213,18 @@ export function ChatAgent({
     const q = question.trim();
     if (!q || busy) return;
     const id = `local-${nextId.current++}`;
-    setTurns((t) => [...t, { id, question: q, state: { kind: "pending", deep: mode === "deep" } }]);
+    setTurns((t) => [
+      ...t,
+      { id, question: q, state: { kind: "pending", deep: ui.modes && mode === "deep" } },
+    ]);
     setQuestion("");
     const settle = (state: Turn["state"]) =>
       setTurns((t) => t.map((turn) => (turn.id === id ? { ...turn, state } : turn)));
     try {
-      const res = await fetch("/api/agents/ask", {
+      const res = await fetch(ui.endpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ question: q, runId, mode }),
+        body: JSON.stringify(ui.body(q, runId, mode)),
       });
       const data = await res.json().catch(() => ({ error: `http_${res.status}` }));
       if (!res.ok) return settle({ kind: "error", code: String(data.error ?? res.status) });
@@ -158,7 +232,7 @@ export function ChatAgent({
       if (typeof data.runId === "string") {
         if (data.runId !== runId) {
           setRunId(data.runId);
-          router.replace(`/agents/chat/${data.runId}`, { scroll: false });
+          router.replace(`${agent.href}/${data.runId}`, { scroll: false });
         }
         // The sidebar's history: the new run, or this one moved to the top.
         router.refresh();
@@ -188,15 +262,15 @@ export function ChatAgent({
   return (
     <main className="flex min-h-[calc(100dvh-56px)] flex-1 flex-col min-[900px]:min-h-dvh">
       <header className="flex items-center gap-3 border-hair border-b-[0.5px] px-4 py-3.5 min-[600px]:px-8">
-        <AgentIcon agent={chat} />
+        <AgentIcon agent={agent} />
         <div className="flex min-w-0 flex-col">
           <h1 className="truncate text-[17px] font-bold">
-            {title ?? turns[0]?.question ?? "New chat"}
+            {title ?? turns[0]?.question ?? ui.newTitle}
           </h1>
           <p className="text-[13px] text-ink2">
-            Chat
+            {agent.name}
             {asked > 0 &&
-              ` · ${asked} ${asked === 1 ? "question" : "questions"} · ${formatTokens(used)} tokens`}
+              ` · ${asked} ${ui.unit[asked === 1 ? 0 : 1]} · ${formatTokens(used)} tokens`}
           </p>
         </div>
       </header>
@@ -212,16 +286,21 @@ export function ChatAgent({
         <div className="mx-auto flex w-full max-w-[820px] flex-1 flex-col gap-5 px-4 py-7 min-[600px]:px-8">
           {turns.length === 0 && (
             <div className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-center">
-              <AgentIcon agent={chat} size="card" />
-              <h2 className="text-[22px] font-bold">Ask your knowledge</h2>
-              <p className="max-w-[440px] text-[15px] leading-[22px] text-ink2">
-                The answer comes only from your Sebtember catalogues (paused ones are skipped), with
-                the documents it used. Each question is answered on its own.
-              </p>
+              <AgentIcon agent={agent} size="card" />
+              <h2 className="text-[22px] font-bold">{ui.emptyTitle}</h2>
+              <p className="max-w-[440px] text-[15px] leading-[22px] text-ink2">{ui.emptyText}</p>
             </div>
           )}
           {turns.map((turn, i) => (
-            <TurnView key={turn.id} turn={turn} runId={runId} first={i === 0} />
+            <TurnView
+              key={turn.id}
+              turn={turn}
+              runId={runId}
+              first={i === 0}
+              name={agent.name}
+              pending={ui.pending}
+              sourceCards={ui.sourceCards}
+            />
           ))}
           <div ref={end} />
         </div>
@@ -230,7 +309,7 @@ export function ChatAgent({
         {off ? (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-card bg-card px-5 py-4 shadow-card">
             <p className="text-[15px] text-ink2">
-              Chat is turned off, so you can read this chat but not ask.
+              {agent.name} is turned off, so you can read this run but not add to it.
             </p>
             <Link href="/agents" className="text-link text-[15px] font-semibold">
               Turn it on in All agents
@@ -245,7 +324,7 @@ export function ChatAgent({
             className="flex flex-col gap-2 rounded-card bg-card py-3 pr-3 pl-[18px] shadow-card focus-within:ring-2 focus-within:ring-act/35"
           >
             <label htmlFor="chat-question" className="sr-only">
-              Ask a question
+              {turns.length === 0 ? ui.placeholder : ui.followUp}
             </label>
             <textarea
               id="chat-question"
@@ -259,11 +338,11 @@ export function ChatAgent({
               }}
               rows={2}
               maxLength={MAX_QUESTION_CHARS}
-              placeholder="Ask a question about your documents"
+              placeholder={turns.length === 0 ? ui.placeholder : ui.followUp}
               className="resize-none bg-transparent pt-1 text-[16px] leading-6 outline-none placeholder:text-ink2 focus-visible:outline-none"
             />
             <div className="flex items-center gap-2">
-              <ModePicker mode={mode} onChange={setMode} disabled={busy} />
+              {ui.modes && <ModePicker mode={mode} onChange={setMode} disabled={busy} />}
               <span className="flex-1 truncate text-[13px] text-ink2 max-[520px]:hidden">
                 Enter to send, Shift+Enter for a new line
               </span>
@@ -288,9 +367,15 @@ function TurnView({
   turn,
   runId,
   first,
+  name,
+  pending,
+  sourceCards,
 }: {
   turn: Turn;
   runId: string | null;
+  name: string;
+  pending: string;
+  sourceCards: boolean;
   /** A follow-up question gets extra room above it, to set it apart from the last answer. */
   first: boolean;
 }) {
@@ -306,9 +391,7 @@ function TurnView({
       {s.kind === "pending" && (
         <div className="flex items-center gap-3 rounded-card bg-card px-6 py-5 text-[15px] text-ink2 shadow-card">
           <span className="size-2 animate-pulse rounded-full bg-act" />
-          {s.deep
-            ? "Searching your catalogues and thinking it through…"
-            : "Searching your catalogues and writing the answer…"}
+          {s.deep ? "Searching your catalogues and thinking it through…" : pending}
         </div>
       )}
       {s.kind === "error" && (
@@ -317,7 +400,7 @@ function TurnView({
           className="flex flex-col gap-2 rounded-card bg-card px-6 py-5 shadow-card"
         >
           <p className="text-[15px] text-danger">
-            {ERRORS[s.code] ?? `Something went wrong (${s.code}). Try again.`}
+            {errorText(s.code, name) ?? `Something went wrong (${s.code}). Try again.`}
           </p>
         </div>
       )}
@@ -336,7 +419,7 @@ function TurnView({
       {s.kind === "answer" && (
         <article className="flex flex-col gap-4 rounded-card bg-card px-6 py-5 shadow-card">
           <AnswerText text={s.answer} />
-          {s.sources.length > 0 && (
+          {sourceCards && s.sources.length > 0 && (
             <div className="flex flex-col gap-2">
               <span className="text-[13px] font-semibold text-ink2">Sources</span>
               <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-2">
