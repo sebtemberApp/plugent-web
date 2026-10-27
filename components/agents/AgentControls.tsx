@@ -126,7 +126,10 @@ export function ChatSettingsButton({ mode }: { mode: AskMode }) {
             </button>
           </div>
           <p className="mt-2 mb-1.5 text-[13px] font-semibold text-ink2">A new chat starts in</p>
-          <div role="group" aria-label="A new chat starts in" className="flex flex-col">
+          <fieldset
+            aria-label="A new chat starts in"
+            className="m-0 flex min-w-0 flex-col border-0 p-0"
+          >
             {MODES.map((m) => (
               <button
                 key={m.id}
@@ -145,7 +148,7 @@ export function ChatSettingsButton({ mode }: { mode: AskMode }) {
                 </span>
               </button>
             ))}
-          </div>
+          </fieldset>
           <p className="mt-1.5 text-[12px] text-ink2">
             {failed ? (
               <span className="text-danger">Not saved. Try again.</span>
