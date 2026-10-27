@@ -63,7 +63,7 @@ export default async function Landing() {
           <div className="grid items-end gap-8 md:grid-cols-[1fr_380px]">
             <div className="flex flex-col gap-5">
               <h1 className="text-[38px] leading-[44px] font-bold tracking-[-0.025em] sm:text-[52px] sm:leading-[58px]">
-                Give the task to an agent that already knows the job
+                Pre-built AI agents for daily tasks
               </h1>
               <p className="max-w-[580px] text-[18px] leading-[28px] text-ink2">
                 Plugent's agents answer questions, fix faults, write specifications and price
