@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeftToLine, House, Layers, LayoutGrid, Lightbulb } from "lucide-react";
+import { ArrowLeftToLine, House, Layers } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -50,7 +50,8 @@ function PlainIcon({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Agent-first: Home, every agent, All agents, then the knowledge the agents read. */
+/** Agent-first: Home, every agent, then the knowledge the agents read. All agents and
+ *  Suggest an agent are reached from Home. */
 export function Sidebar({
   email,
   topUpUrl,
@@ -119,28 +120,6 @@ export function Sidebar({
             onNavigate={onNavigate}
           />
         ))}
-        <NavRow
-          href="/agents"
-          active={path === "/agents"}
-          icon={
-            <PlainIcon>
-              <LayoutGrid aria-hidden size={16} strokeWidth={1.8} />
-            </PlainIcon>
-          }
-          label="All agents"
-          onNavigate={onNavigate}
-        />
-        <NavRow
-          href="/agents/suggest"
-          active={path === "/agents/suggest"}
-          icon={
-            <PlainIcon>
-              <Lightbulb aria-hidden size={16} strokeWidth={1.8} />
-            </PlainIcon>
-          }
-          label="Suggest an agent"
-          onNavigate={onNavigate}
-        />
 
         <h2 className="mt-4 mb-1 px-2.5 text-[13px] font-semibold text-ink2">Your knowledge</h2>
         <NavRow
