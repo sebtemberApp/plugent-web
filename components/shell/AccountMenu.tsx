@@ -1,7 +1,8 @@
 "use client";
 
 import { signOut } from "firebase/auth";
-import { ExternalLink, LogOut, Monitor, Moon, Sun } from "lucide-react";
+import { ExternalLink, LayoutGrid, LogOut, Monitor, Moon, Sun } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { auth } from "@/lib/firebase/client";
@@ -14,7 +15,8 @@ const THEMES: { id: ThemeChoice; label: string; icon: React.ReactNode }[] = [
   { id: "dark", label: "Dark", icon: <Moon aria-hidden size={15} /> },
 ];
 
-/** The account button at the foot of the sidebar: balance, Top up, theme and sign out.
+/** The account button at the foot of the sidebar: balance, All agents, Top up, theme and
+ *  sign out.
  *  `compact` is the hidden sidebar's rail: the avatar alone, the menu opening beside it. */
 export function AccountMenu({
   email,
@@ -79,6 +81,15 @@ export function AccountMenu({
               </p>
             )}
           </div>
+          <Link
+            role="menuitem"
+            href="/agents"
+            onClick={() => setOpen(false)}
+            className="flex h-9 items-center gap-2.5 rounded-chip px-2.5 text-[15px] hover:bg-fill1"
+          >
+            <LayoutGrid aria-hidden size={16} className="text-ink2" />
+            All agents
+          </Link>
           {topUpUrl && (
             <a
               role="menuitem"
