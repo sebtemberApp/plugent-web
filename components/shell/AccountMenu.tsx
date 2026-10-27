@@ -14,13 +14,16 @@ const THEMES: { id: ThemeChoice; label: string; icon: React.ReactNode }[] = [
   { id: "dark", label: "Dark", icon: <Moon aria-hidden size={15} /> },
 ];
 
-/** The account button at the foot of the sidebar: balance, Top up, theme and sign out. */
+/** The account button at the foot of the sidebar: balance, Top up, theme and sign out.
+ *  `compact` is the hidden sidebar's rail: the avatar alone, the menu opening beside it. */
 export function AccountMenu({
   email,
   topUpUrl,
+  compact = false,
 }: {
   email: string | null;
   topUpUrl: string | null;
+  compact?: boolean;
 }) {
   const { balance } = useBalance();
   const router = useRouter();
@@ -63,7 +66,9 @@ export function AccountMenu({
       {open && (
         <div
           role="menu"
-          className="absolute right-0 bottom-full left-0 mb-2 rounded-control bg-raised p-1.5 shadow-pop"
+          className={`absolute z-50 rounded-control bg-raised p-1.5 shadow-pop ${
+            compact ? "bottom-0 left-full ml-2 w-64" : "right-0 bottom-full left-0 mb-2"
+          }`}
         >
           <div className="px-2.5 pt-1.5 pb-2.5">
             <p className="truncate text-[13px] text-ink2">{email ?? "Signed in"}</p>
@@ -124,16 +129,20 @@ export function AccountMenu({
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-label={compact ? "Account" : undefined}
+        title={compact ? `${email ?? "Account"} · ${line}` : undefined}
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2.5 rounded-control p-2 text-left hover:bg-fill1"
+        className={`flex items-center gap-2.5 rounded-control p-2 text-left hover:bg-fill1 ${compact ? "" : "w-full"}`}
       >
         <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-[13px] font-bold text-page">
           {(email ?? "?").slice(0, 1).toUpperCase()}
         </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-[14px] font-semibold">{email ?? "Account"}</span>
-          <span className="block truncate text-[13px] text-ink2">{line}</span>
-        </span>
+        {!compact && (
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[14px] font-semibold">{email ?? "Account"}</span>
+            <span className="block truncate text-[13px] text-ink2">{line}</span>
+          </span>
+        )}
       </button>
     </div>
   );
