@@ -123,14 +123,7 @@ export function AgentCarousel() {
         className="grid overflow-hidden rounded-card bg-card shadow-card lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]"
       >
         <div className="flex flex-col gap-5 p-6 sm:p-8">
-          <div className="flex items-center gap-3">
-            <AgentIcon agent={agent} size="card" />
-            {!agent.available && (
-              <span className="rounded-chip bg-fill1 px-2 py-0.5 text-[12px] font-semibold text-ink2">
-                Coming soon
-              </span>
-            )}
-          </div>
+          <AgentIcon agent={agent} size="card" />
           <h3 className="text-[26px] leading-[32px] font-bold tracking-[-0.015em]">
             {slide.headline}
           </h3>
