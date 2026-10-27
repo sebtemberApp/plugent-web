@@ -48,6 +48,13 @@ On dev, sebtember's sign-in **email allowlist** still applies: a Plugent user no
    - `PLUGENT_SERVICE_ACCOUNT_JSON` — the whole JSON key from step 2.3, as one line. Mark it **Sensitive**.
 3. Domains: add the Plugent dev domain to the `dev` branch.
 
+## 5b. Plugent's Firestore (✅ dev, 2026-10-27)
+`(default)` in `plugent-dev`: Native mode, `europe-west1` (Sebtember's region; it cannot be changed later).
+The `plugent-web` service account has `roles/datastore.user` on the project; the app uses the same JSON key,
+so no new variable. `firestore.rules` denies all client access (deploy with
+`firebase deploy --only firestore:rules --project plugent-dev`). Local runs: `firebase emulators:start --only
+firestore` and `FIRESTORE_EMULATOR_HOST=127.0.0.1:8090`.
+
 ## 6. Check it
 1. https://dev.plugent.app/api/health — the live `commit`, and `true` for every setting, `sessionSecretLongEnough`
    and `serviceAccountJsonParses`. Never a value.

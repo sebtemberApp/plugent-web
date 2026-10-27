@@ -16,6 +16,9 @@ built like PeakPick. It NEVER reads sebtember's Firestore or vectors directly. T
 - ⚠️ **Money goes through sebtember's product API** — gate on `getBalance` before work, store the returned
   `source` on the run, `charge` with the run's own id as the line id (idempotent). Never re-resolve the source.
 - **A sebtember-side API change ships before the Plugent change that uses it.**
+- ⚠️ **Plugent's Firestore is SERVER-ONLY** (`lib/firebase/admin.ts`, the same service-account key;
+  `firestore.rules` denies every client). Runs live under `users/{uid}/runs/{runId}` + `turns/`, so a run id
+  can never reach another user's run; only `lib/runs.ts` touches them. Suggestions: `agent_suggestions`.
 
 ## Environments
 `main` → Production → `sebtember-app` login, `https://sebtember.app`; `dev` → Preview → `sebtember-app-dev`,

@@ -4,6 +4,7 @@ import { Menu, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import type { RunSummary } from "@/lib/runs";
 import { BalanceProvider } from "./BalanceContext";
 import { Logo } from "./Logo";
 import { Sidebar } from "./Sidebar";
@@ -15,10 +16,13 @@ import { Sidebar } from "./Sidebar";
 export function AppFrame({
   email,
   topUpUrl,
+  runs,
   children,
 }: {
   email: string | null;
   topUpUrl: string | null;
+  /** null when the history could not be read. */
+  runs: RunSummary[] | null;
   children: React.ReactNode;
 }) {
   const [drawer, setDrawer] = useState(false);
@@ -38,7 +42,7 @@ export function AppFrame({
     <BalanceProvider>
       <div className="flex min-h-dvh">
         <aside className="sticky top-0 hidden h-dvh w-[264px] shrink-0 border-hair border-r-[0.5px] min-[900px]:block">
-          <Sidebar email={email} topUpUrl={topUpUrl} />
+          <Sidebar email={email} topUpUrl={topUpUrl} runs={runs} />
         </aside>
 
         {drawer && (
@@ -50,7 +54,12 @@ export function AppFrame({
               className="absolute inset-0 bg-black/35"
             />
             <aside className="absolute inset-y-0 left-0 w-[min(300px,85vw)] shadow-pop">
-              <Sidebar email={email} topUpUrl={topUpUrl} onNavigate={() => setDrawer(false)} />
+              <Sidebar
+                email={email}
+                topUpUrl={topUpUrl}
+                runs={runs}
+                onNavigate={() => setDrawer(false)}
+              />
               <button
                 type="button"
                 aria-label="Close menu"

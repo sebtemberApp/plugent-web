@@ -1,0 +1,9 @@
+{
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "emulators": {
+    "firestore": { "port": 8090 },
+    "singleProjectMode": true
+  }
+}

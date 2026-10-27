@@ -2,10 +2,12 @@
 
 import { ArrowUp, BookOpen, Check, Copy } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { formatTokens, useBalance } from "@/components/shell/BalanceContext";
 import { AgentIcon } from "@/components/ui/AgentIcon";
 import { agentById } from "@/lib/agents/registry";
+import type { StoredTurn } from "@/lib/runs";
 import { AnswerText } from "./AnswerText";
 
 type Source = {
@@ -18,7 +20,7 @@ type Source = {
 };
 
 type Turn = {
-  id: number;
+  id: string;
   question: string;
   state:
     | { kind: "pending" }
@@ -41,18 +43,61 @@ const ERRORS: Record<string, string> = {
   not_connected: "Plugent isn't connected to your Sebtember catalogues yet.",
   invalid_question: "Type a question first (up to 2,000 characters).",
   unauthorized: "Your session has ended. Reload the page to sign in again.",
+  run_not_found: "This chat was deleted. Start a new chat to ask again.",
 };
+
+function fromStored(turns: StoredTurn[]): Turn[] {
+  return turns.map((t) => ({
+    id: t.id,
+    question: t.question,
+    state:
+      t.kind === "answer"
+        ? {
+            kind: "answer",
+            answer: t.answer,
+            sources: t.sources,
+            tokens: t.tokens,
+            charged: t.charged,
+          }
+        : { kind: "not_covered", tokens: t.tokens },
+  }));
+}
 
 /**
  * The Chat agent (milestone 3's Ask, restyled): each question is answered from the
- * connected catalogues, with its sources as cards. Questions are answered on their own and
- * the conversation lives in this page until run history is stored.
+ * connected catalogues, with its sources as cards, and saved into the run. The first
+ * answer of a new chat gives it its URL and a row in the sidebar. Questions are still
+ * answered on their own: the model does not see the earlier turns.
  */
-export function ChatAgent() {
+export function ChatAgent({
+  runId: initialRunId,
+  title: initialTitle,
+  initialTurns,
+}: {
+  runId: string | null;
+  title: string | null;
+  initialTurns: StoredTurn[];
+}) {
   const { spent } = useBalance();
-  const [turns, setTurns] = useState<Turn[]>([]);
+  const router = useRouter();
+  const [runId, setRunId] = useState(initialRunId);
+  const [title, setTitle] = useState(initialTitle);
+  const [turns, setTurns] = useState<Turn[]>(() => fromStored(initialTurns));
   const [question, setQuestion] = useState("");
   const nextId = useRef(1);
+
+  // Another run (or a new chat) opened from the sidebar: show it. The URL this page gave
+  // its own new run arrives here too, and changes nothing.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only a different run resets
+  useEffect(() => {
+    if (initialRunId === runId) {
+      setTitle(initialTitle);
+      return;
+    }
+    setRunId(initialRunId);
+    setTitle(initialTitle);
+    setTurns(fromStored(initialTurns));
+  }, [initialRunId, initialTitle]);
   const end = useRef<HTMLDivElement>(null);
   const busy = turns.at(-1)?.state.kind === "pending";
 
@@ -64,7 +109,7 @@ export function ChatAgent() {
   async function ask() {
     const q = question.trim();
     if (!q || busy) return;
-    const id = nextId.current++;
+    const id = `local-${nextId.current++}`;
     setTurns((t) => [...t, { id, question: q, state: { kind: "pending" } }]);
     setQuestion("");
     const settle = (state: Turn["state"]) =>
@@ -73,11 +118,19 @@ export function ChatAgent() {
       const res = await fetch("/api/agents/ask", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ question: q }),
+        body: JSON.stringify({ question: q, runId }),
       });
       const data = await res.json().catch(() => ({ error: `http_${res.status}` }));
       if (!res.ok) return settle({ kind: "error", code: String(data.error ?? res.status) });
       if (typeof data.balanceAfter === "number") spent(data.balanceAfter);
+      if (typeof data.runId === "string") {
+        if (data.runId !== runId) {
+          setRunId(data.runId);
+          router.replace(`/agents/chat/${data.runId}`, { scroll: false });
+        }
+        // The sidebar's history: the new run, or this one moved to the top.
+        router.refresh();
+      }
       settle(
         data.kind === "answer"
           ? {
@@ -105,7 +158,9 @@ export function ChatAgent() {
       <header className="flex items-center gap-3 border-hair border-b-[0.5px] px-4 py-3.5 min-[600px]:px-8">
         <AgentIcon agent={chat} />
         <div className="flex min-w-0 flex-col">
-          <h1 className="truncate text-[17px] font-bold">{turns[0]?.question ?? "Chat"}</h1>
+          <h1 className="truncate text-[17px] font-bold">
+            {title ?? turns[0]?.question ?? "New chat"}
+          </h1>
           <p className="text-[13px] text-ink2">
             Chat
             {asked > 0 &&
