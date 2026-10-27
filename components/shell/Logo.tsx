@@ -1,4 +1,4 @@
-/** The Plugent wordmark: the navy drawing on light, the light drawing on dark. */
+/** The Plugent logo: the socket mark and the name. Navy drawing on light, light drawing on dark. */
 export function Logo({ className = "h-6" }: { className?: string }) {
   return (
     <span className="inline-flex" role="img" aria-label="Plugent">
