@@ -33,7 +33,10 @@ export function AccountPanel() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ idToken: await next.getIdToken() }),
       });
-      if (!res.ok) return setBalance({ error: `session_refused_${res.status}` });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        return setBalance({ error: body.error ?? `session_refused_${res.status}` });
+      }
       const b = await fetch("/api/balance");
       setBalance(await b.json());
     });

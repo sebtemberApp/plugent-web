@@ -18,8 +18,17 @@ export async function POST(req: NextRequest) {
   const user = idToken ? await verifySebtemberIdToken(idToken) : null;
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
+  let cookie: string;
+  try {
+    cookie = mintSession(user);
+  } catch (err) {
+    // Only a missing or short PLUGENT_SESSION_SECRET throws here: name it, so the page can.
+    console.error("[session]", err);
+    return NextResponse.json({ error: "session_secret_misconfigured" }, { status: 500 });
+  }
+
   const res = NextResponse.json({ uid: user.uid });
-  res.cookies.set(SESSION_COOKIE, mintSession(user), {
+  res.cookies.set(SESSION_COOKIE, cookie, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
