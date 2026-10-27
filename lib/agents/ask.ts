@@ -23,6 +23,7 @@ import { generateText } from "ai";
 import {
   charge,
   getBalance,
+  getKnowledgeCatalogues,
   type KnowledgePassage,
   SebtemberApiError,
   searchKnowledge,
@@ -76,12 +77,25 @@ function passagesBlock(passages: KnowledgePassage[]): string {
 }
 
 /** The passages the answer cites, keeping their numbers so [n] in the text still matches;
- *  an uncited passage is not a source of this answer. */
-export function citedSources(answer: string, passages: KnowledgePassage[]): AskSource[] {
+ *  an uncited passage is not a source of this answer. `libraryIds` are the granted
+ *  catalogues sebtember marks `library` (Step 1176). */
+export function citedSources(
+  answer: string,
+  passages: KnowledgePassage[],
+  libraryIds: ReadonlySet<string> = new Set(),
+): AskSource[] {
   const cited = new Set([...answer.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1])));
   return passages.flatMap((p, i) =>
     cited.has(i + 1)
-      ? [{ n: i + 1, fileName: p.file_name, catalogueName: p.catalogue_name, page: p.page }]
+      ? [
+          {
+            n: i + 1,
+            fileName: p.file_name,
+            catalogueName: p.catalogue_name,
+            page: p.page,
+            library: libraryIds.has(p.catalogue_id),
+          },
+        ]
       : [],
   );
 }
@@ -91,6 +105,8 @@ export interface AskSource {
   fileName: string;
   catalogueName: string | null;
   page: string | null;
+  /** From another user's published catalogue (Library), not the user's own. */
+  library: boolean;
 }
 
 export type AskResult =
@@ -115,6 +131,12 @@ export async function runAsk(uid: string, question: string): Promise<AskResult> 
   const wallet = await getBalance(uid);
   if (wallet.balance < wallet.minimum) throw new AskRefused("low_balance");
   const runId = randomUUID();
+
+  // Which granted catalogues are Library ones, for the source cards. Read beside the search;
+  // a failure only means every source shows as the user's own.
+  const libraryIds = getKnowledgeCatalogues(uid)
+    .then(({ catalogues }) => new Set(catalogues.filter((c) => c.library).map((c) => c.id)))
+    .catch(() => new Set<string>());
 
   let search: Awaited<ReturnType<typeof searchKnowledge>>;
   try {
@@ -158,7 +180,7 @@ export async function runAsk(uid: string, question: string): Promise<AskResult> 
   return {
     kind: "answer",
     answer,
-    sources: citedSources(answer, search.passages),
+    sources: citedSources(answer, search.passages, await libraryIds),
     tokens: searchTokens + answerTokens,
     balanceAfter,
     charged,

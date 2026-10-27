@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, Check, Copy } from "lucide-react";
+import { ArrowUp, BookOpen, Check, Copy } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { formatTokens, useBalance } from "@/components/shell/BalanceContext";
@@ -8,7 +8,14 @@ import { AgentIcon } from "@/components/ui/AgentIcon";
 import { agentById } from "@/lib/agents/registry";
 import { AnswerText } from "./AnswerText";
 
-type Source = { n: number; fileName: string; catalogueName: string | null; page: string | null };
+type Source = {
+  n: number;
+  fileName: string;
+  catalogueName: string | null;
+  page: string | null;
+  /** Another user's published catalogue; absent on an older Plugent answer. */
+  library?: boolean;
+};
 
 type Turn = {
   id: number;
@@ -231,9 +238,7 @@ function TurnView({ turn }: { turn: Turn }) {
 
 function SourceCard({ source }: { source: Source }) {
   const ext = /\.([a-z0-9]{2,5})$/i.exec(source.fileName)?.[1]?.toUpperCase() ?? "FILE";
-  const where = [source.page ? `p. ${source.page}` : null, source.catalogueName]
-    .filter(Boolean)
-    .join(" · ");
+  const page = source.page ? `p. ${source.page}` : null;
   return (
     <div className="flex gap-2.5 rounded-inner bg-fill1 p-3">
       <span className="flex h-10 w-8 shrink-0 items-center justify-center rounded-[6px] bg-card text-[10px] font-bold text-ink2 shadow-card">
@@ -248,7 +253,21 @@ function SourceCard({ source }: { source: Source }) {
             {source.fileName}
           </span>
         </span>
-        {where && <span className="truncate text-[12px] text-ink2">{where}</span>}
+        {(page || source.catalogueName || source.library) && (
+          <span className="flex min-w-0 items-center gap-1 text-[12px] text-ink2">
+            {page && <span className="shrink-0">{page}</span>}
+            {page && (source.catalogueName || source.library) && <span aria-hidden>·</span>}
+            {source.library && (
+              <BookOpen aria-hidden size={13} strokeWidth={2} className="shrink-0 text-k-lib" />
+            )}
+            {(source.catalogueName || source.library) && (
+              <span className={`truncate ${source.library ? "font-semibold text-k-lib" : ""}`}>
+                {source.catalogueName ?? "Library"}
+                {source.library && <span className="sr-only"> (Library catalogue)</span>}
+              </span>
+            )}
+          </span>
+        )}
       </span>
     </div>
   );
