@@ -12,6 +12,7 @@ import { agentById } from "@/lib/agents/registry";
 import type { StoredTurn } from "@/lib/runs";
 import { readStored, writeStored } from "@/lib/ui/stored";
 import { AnswerText } from "./AnswerText";
+import { ChatOutline, outlineTitle, turnAnchor } from "./ChatOutline";
 import { ModePicker } from "./ModePicker";
 
 type Source = {
@@ -202,23 +203,31 @@ export function ChatAgent({
         </div>
       </header>
 
-      <div className="mx-auto flex w-full max-w-[820px] flex-1 flex-col gap-5 px-4 py-7 min-[600px]:px-8">
-        {turns.length === 0 && (
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-center">
-            <AgentIcon agent={chat} size="card" />
-            <h2 className="text-[22px] font-bold">Ask your knowledge</h2>
-            <p className="max-w-[440px] text-[15px] leading-[22px] text-ink2">
-              The answer comes only from the Sebtember catalogues you connected, with the documents
-              it used. Each question is answered on its own.
-            </p>
-          </div>
-        )}
-        {turns.map((turn, i) => (
-          <TurnView key={turn.id} turn={turn} runId={runId} first={i === 0} />
-        ))}
-        <div ref={end} />
+      <div className="@container relative flex flex-1 flex-col">
+        <ChatOutline
+          entries={turns.flatMap((t) => {
+            if (t.state.kind !== "answer") return [];
+            const title = outlineTitle(t.state.answer);
+            return title ? [{ id: t.id, title }] : [];
+          })}
+        />
+        <div className="mx-auto flex w-full max-w-[820px] flex-1 flex-col gap-5 px-4 py-7 min-[600px]:px-8">
+          {turns.length === 0 && (
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-center">
+              <AgentIcon agent={chat} size="card" />
+              <h2 className="text-[22px] font-bold">Ask your knowledge</h2>
+              <p className="max-w-[440px] text-[15px] leading-[22px] text-ink2">
+                The answer comes only from the Sebtember catalogues you connected, with the
+                documents it used. Each question is answered on its own.
+              </p>
+            </div>
+          )}
+          {turns.map((turn, i) => (
+            <TurnView key={turn.id} turn={turn} runId={runId} first={i === 0} />
+          ))}
+          <div ref={end} />
+        </div>
       </div>
-
       <div className="sticky bottom-0 mx-auto w-full max-w-[820px] bg-gradient-to-t from-page from-70% to-transparent px-4 pt-3 pb-4 min-[600px]:px-8 min-[600px]:pb-6">
         <form
           onSubmit={(e) => {
@@ -280,7 +289,8 @@ function TurnView({
   return (
     <>
       <div
-        className={`max-w-[80%] self-end rounded-list bg-fill2 px-4 py-3 text-[16px] leading-6 whitespace-pre-wrap ${first ? "" : "mt-7"}`}
+        id={turnAnchor(turn.id)}
+        className={`max-w-[80%] scroll-mt-6 self-end rounded-list bg-fill2 px-4 py-3 text-[16px] leading-6 whitespace-pre-wrap ${first ? "" : "mt-7"}`}
       >
         {turn.question}
       </div>
