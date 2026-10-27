@@ -103,6 +103,52 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return data as T;
 }
 
+export interface KnowledgeCatalogues {
+  /** false = the user never connected Plugent on sebtember.app's /connect/plugent. */
+  connected: boolean;
+  catalogues: { id: string; name: string }[];
+}
+
+export interface KnowledgeSourcesPage {
+  catalogue: { id: string; name: string };
+  sources: {
+    document_id: string;
+    file_id: string;
+    file_name: string;
+    mime_type: string | null;
+    extraction_status: string | null;
+  }[];
+  nextCursor: string | null;
+}
+
+/** The catalogues the user ticked for Plugent (sebtember Step 1174). */
+export function getKnowledgeCatalogues(uid: string): Promise<KnowledgeCatalogues> {
+  return post<KnowledgeCatalogues>("/api/products/knowledge/catalogues", { uid });
+}
+
+/** One page of a granted catalogue's files (metadata only). */
+export function getKnowledgeSources(
+  uid: string,
+  catalogueId: string,
+  limit = 200,
+): Promise<KnowledgeSourcesPage> {
+  return post<KnowledgeSourcesPage>("/api/products/knowledge/sources", {
+    uid,
+    catalogue_id: catalogueId,
+    limit,
+  });
+}
+
+/** Where the user ticks catalogues for Plugent; sebtember sends them back to `returnTo`
+ *  only when its origin is in sebtember's PRODUCT_RETURN_ORIGINS. */
+export function connectUrl(returnTo: string): string | null {
+  const origin = process.env.SEBTEMBER_API_ORIGIN?.trim();
+  if (!origin) return null;
+  const url = new URL("/connect/plugent", origin);
+  url.searchParams.set("return", returnTo);
+  return url.toString();
+}
+
 export function getBalance(uid: string): Promise<ProductBalance> {
   return post<ProductBalance>("/api/products/balance", { uid });
 }

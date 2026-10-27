@@ -10,6 +10,7 @@ import {
   type User,
 } from "firebase/auth";
 import { useEffect, useState } from "react";
+import { KnowledgePanel } from "@/components/KnowledgePanel";
 import { auth, googleProvider } from "@/lib/firebase/client";
 
 type Balance = { source: string; balance: number; minimum: number } | { error: string };
@@ -86,20 +87,23 @@ export function AccountPanel() {
   }
 
   return (
-    <div className="space-y-3 rounded-xl border border-line p-4 text-sm">
-      <p>
-        Signed in as <strong>{user.email}</strong>
-      </p>
-      <p>
-        {balance === null
-          ? "Reading your Sebtember balance…"
-          : "error" in balance
-            ? `Balance unavailable (${balance.error}).`
-            : `Balance: ${balance.balance.toLocaleString("en-US")} tokens (${balance.source === "personal" ? "personal" : "shared"} wallet)`}
-      </p>
-      <button type="button" onClick={signOutBoth} className="text-muted underline">
-        Sign out
-      </button>
+    <div className="space-y-4">
+      <div className="space-y-3 rounded-xl border border-line p-4 text-sm">
+        <p>
+          Signed in as <strong>{user.email}</strong>
+        </p>
+        <p>
+          {balance === null
+            ? "Reading your Sebtember balance…"
+            : "error" in balance
+              ? `Balance unavailable (${balance.error}).`
+              : `Balance: ${balance.balance.toLocaleString("en-US")} tokens (${balance.source === "personal" ? "personal" : "shared"} wallet)`}
+        </p>
+        <button type="button" onClick={signOutBoth} className="text-muted underline">
+          Sign out
+        </button>
+      </div>
+      {balance && !("error" in balance) && <KnowledgePanel />}
     </div>
   );
 }
