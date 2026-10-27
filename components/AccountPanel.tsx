@@ -95,7 +95,7 @@ export function AccountPanel() {
           ? "Reading your Sebtember balance…"
           : "error" in balance
             ? `Balance unavailable (${balance.error}).`
-            : `Balance: ${balance.balance.toLocaleString("en-US")} tokens (${balance.source} wallet)`}
+            : `Balance: ${balance.balance.toLocaleString("en-US")} tokens (${balance.source === "personal" ? "personal" : "shared"} wallet)`}
       </p>
       <button type="button" onClick={signOutBoth} className="text-muted underline">
         Sign out
