@@ -18,7 +18,7 @@ built like PeakPick. It NEVER reads sebtember's Firestore or vectors directly. T
 - **A sebtember-side API change ships before the Plugent change that uses it.**
 - ⚠️ **Plugent's Firestore is SERVER-ONLY** (`lib/firebase/admin.ts`, the same service-account key;
   `firestore.rules` denies every client). Runs live under `users/{uid}/runs/{runId}` + `turns/`, so a run id
-  can never reach another user's run; only `lib/runs.ts` touches them. Suggestions: `agent_suggestions`.
+  can never reach another user's run; only `lib/runs.ts` touches them. Suggestions: `agent_suggestions`; answer feedback: `answer_feedback`.
 
 ## Environments
 `main` → Production → `sebtember-app` login, `https://sebtember.app`; `dev` → Preview → `sebtember-app-dev`,

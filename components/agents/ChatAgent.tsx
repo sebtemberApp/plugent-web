@@ -1,9 +1,10 @@
 "use client";
 
-import { ArrowUp, BookOpen, Check, Copy } from "lucide-react";
+import { ArrowUp, BookOpen, Check, Copy, MessageSquareText } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useId, useState, useTransition } from "react";
+import { sendFeedbackAction } from "@/app/actions/feedback";
 import { formatTokens, useBalance } from "@/components/shell/BalanceContext";
 import { AgentIcon } from "@/components/ui/AgentIcon";
 import { agentById } from "@/lib/agents/registry";
@@ -181,7 +182,7 @@ export function ChatAgent({
           </div>
         )}
         {turns.map((turn) => (
-          <TurnView key={turn.id} turn={turn} />
+          <TurnView key={turn.id} turn={turn} runId={runId} />
         ))}
         <div ref={end} />
       </div>
@@ -231,7 +232,7 @@ export function ChatAgent({
   );
 }
 
-function TurnView({ turn }: { turn: Turn }) {
+function TurnView({ turn, runId }: { turn: Turn; runId: string | null }) {
   const s = turn.state;
   return (
     <>
@@ -268,7 +269,7 @@ function TurnView({ turn }: { turn: Turn }) {
             </Link>
             .
           </p>
-          <TokenFooter tokens={s.tokens} />
+          <AnswerFooter tokens={s.tokens} runId={runId} question={turn.question} answer="" />
         </article>
       )}
       {s.kind === "answer" && (
@@ -284,7 +285,14 @@ function TurnView({ turn }: { turn: Turn }) {
               </div>
             </div>
           )}
-          <TokenFooter tokens={s.tokens} charged={s.charged} copy={s.answer} />
+          <AnswerFooter
+            tokens={s.tokens}
+            charged={s.charged}
+            runId={runId}
+            question={turn.question}
+            answer={s.answer}
+            copy
+          />
         </article>
       )}
     </>
@@ -328,37 +336,126 @@ function SourceCard({ source }: { source: Source }) {
   );
 }
 
-function TokenFooter({
+const ICON_BUTTON =
+  "flex size-9 items-center justify-center rounded-chip text-ink2 hover:bg-fill1 hover:text-ink";
+
+/** The answer card's foot: the tokens it cost on the left, its actions on the right.
+ *  One Feedback icon (no like / dislike) opens a short note to the platform admin. */
+function AnswerFooter({
   tokens,
   charged = true,
-  copy,
+  runId,
+  question,
+  answer,
+  copy = false,
 }: {
   tokens: number;
   charged?: boolean;
-  copy?: string;
+  runId: string | null;
+  question: string;
+  answer: string;
+  copy?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
+  const [writing, setWriting] = useState(false);
+  const [note, setNote] = useState("");
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  const fieldId = useId();
+
+  function send() {
+    const text = note.trim();
+    if (!text) return;
+    setError(null);
+    start(async () => {
+      const res = await sendFeedbackAction({ runId, question, answer, text }).catch(() => ({
+        ok: false as const,
+        error: "unreachable",
+      }));
+      if (res.ok) {
+        setSent(true);
+        setWriting(false);
+        setNote("");
+      } else {
+        setError("Your feedback wasn't sent. Try again.");
+      }
+    });
+  }
+
   return (
-    <footer className="flex items-center gap-1 border-hair border-t-[0.5px] pt-2">
-      {copy && (
+    <footer className="flex flex-col gap-2 border-hair border-t-[0.5px] pt-2">
+      <div className="flex items-center gap-1">
+        <span className="text-[13px] text-ink2 tabular-nums">
+          {formatTokens(tokens)} tokens{charged ? "" : " (not charged: billing failed)"}
+        </span>
+        <span className="flex-1" />
+        {sent && <span className="mr-1 text-[13px] text-ink2">Thanks for the feedback</span>}
         <button
           type="button"
-          aria-label={copied ? "Copied" : "Copy the answer"}
-          onClick={() =>
-            navigator.clipboard.writeText(copy).then(() => {
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1500);
-            })
-          }
-          className="flex size-9 items-center justify-center rounded-chip text-ink2 hover:bg-fill1"
+          aria-label="Feedback on this answer"
+          title="Feedback on this answer"
+          aria-expanded={writing}
+          onClick={() => setWriting((w) => !w)}
+          className={`${ICON_BUTTON} ${writing ? "bg-fill1 text-ink" : ""}`}
         >
-          {copied ? <Check aria-hidden size={18} /> : <Copy aria-hidden size={18} />}
+          <MessageSquareText aria-hidden size={18} />
         </button>
+        {copy && (
+          <button
+            type="button"
+            aria-label={copied ? "Copied" : "Copy the answer"}
+            title="Copy the answer"
+            onClick={() =>
+              navigator.clipboard.writeText(answer).then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              })
+            }
+            className={ICON_BUTTON}
+          >
+            {copied ? <Check aria-hidden size={18} /> : <Copy aria-hidden size={18} />}
+          </button>
+        )}
+      </div>
+      {writing && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            send();
+          }}
+          className="flex flex-col gap-2 rounded-inner bg-fill1 p-3"
+        >
+          <label htmlFor={fieldId} className="text-[13px] font-semibold text-ink2">
+            What was wrong or missing? The Plugent team reads every note.
+          </label>
+          <textarea
+            id={fieldId}
+            rows={3}
+            maxLength={2000}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            className="resize-none rounded-control bg-card px-3 py-2 text-[15px] leading-6 shadow-card outline-none focus:ring-2 focus:ring-act"
+          />
+          {error && <p className="text-[13px] text-danger">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setWriting(false)}
+              className="h-9 rounded-full px-4 text-[15px] font-semibold hover:bg-fill2"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={pending || !note.trim()}
+              className="h-9 rounded-full bg-act px-4 text-[15px] font-semibold text-white hover:bg-act-press disabled:opacity-40"
+            >
+              {pending ? "Sending…" : "Send"}
+            </button>
+          </div>
+        </form>
       )}
-      <span className="flex-1" />
-      <span className="text-[13px] text-ink2 tabular-nums">
-        {formatTokens(tokens)} tokens{charged ? "" : " (not charged: billing failed)"}
-      </span>
     </footer>
   );
 }
