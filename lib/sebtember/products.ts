@@ -108,7 +108,14 @@ export interface KnowledgeCatalogues {
   connected: boolean;
   /** `library` (sebtember Step 1176): another user's published catalogue the user subscribes
    *  to. Absent (an older sebtember) reads as the user's own. */
-  catalogues: { id: string; name: string; library?: boolean }[];
+  catalogues: {
+    id: string;
+    name: string;
+    library?: boolean;
+    /** sebtember Step 1177: `null` = the user's own catalogue; else whose it is, by the
+     *  admin's display name (`name: null` when they set none). Absent on an older sebtember. */
+    owner?: { name: string | null } | null;
+  }[];
 }
 
 export interface KnowledgeSourcesPage {

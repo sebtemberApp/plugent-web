@@ -21,7 +21,25 @@ type Source = {
   page: string | null;
   /** Another user's published catalogue; absent on an older Plugent answer. */
   library?: boolean;
+  /** Whose content it is: `null` = the user's own; absent on an older Plugent answer. */
+  owner?: string | null;
 };
+
+/** The answer's content owners for its "Source:" row, as Sebtember chat shows them: the
+ *  user's own first as "You", then each other owner once, in citation order. */
+function ownersOf(sources: Source[]): { label: string; own: boolean }[] {
+  const others: string[] = [];
+  let own = false;
+  for (const src of sources) {
+    const owner = src.owner === undefined ? (src.library ? "Library" : null) : src.owner;
+    if (owner === null) own = true;
+    else if (!others.includes(owner)) others.push(owner);
+  }
+  return [
+    ...(own ? [{ label: "You", own: true }] : []),
+    ...others.map((label) => ({ label, own: false })),
+  ];
+}
 
 type Turn = {
   id: string;
@@ -298,7 +316,7 @@ function TurnView({
             </Link>
             .
           </p>
-          <AnswerFooter tokens={s.tokens} runId={runId} question={turn.question} answer="" />
+          <AnswerFooter owners={[]} runId={runId} question={turn.question} answer="" />
         </article>
       )}
       {s.kind === "answer" && (
@@ -315,7 +333,7 @@ function TurnView({
             </div>
           )}
           <AnswerFooter
-            tokens={s.tokens}
+            owners={ownersOf(s.sources)}
             charged={s.charged}
             runId={runId}
             question={turn.question}
@@ -368,17 +386,18 @@ function SourceCard({ source }: { source: Source }) {
 const ICON_BUTTON =
   "flex size-9 items-center justify-center rounded-chip text-ink2 hover:bg-fill1 hover:text-ink";
 
-/** The answer card's foot: the tokens it cost on the left, its actions on the right.
+/** The answer card's foot: whose content it drew on ("Source:") on the left, its actions
+ *  on the right. The tokens are in the run's header, not here.
  *  One Feedback icon (no like / dislike) opens a short note to the platform admin. */
 function AnswerFooter({
-  tokens,
+  owners,
   charged = true,
   runId,
   question,
   answer,
   copy = false,
 }: {
-  tokens: number;
+  owners: { label: string; own: boolean }[];
   charged?: boolean;
   runId: string | null;
   question: string;
@@ -415,9 +434,22 @@ function AnswerFooter({
   return (
     <footer className="flex flex-col gap-2 border-hair border-t-[0.5px] pt-2">
       <div className="flex items-center gap-1">
-        <span className="text-[13px] text-ink2 tabular-nums">
-          {formatTokens(tokens)} tokens{charged ? "" : " (not charged: billing failed)"}
-        </span>
+        {owners.length > 0 && (
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <span className="text-[13px] text-ink2">Source:</span>
+            {owners.map((o) => (
+              <span
+                key={o.label}
+                className={`max-w-[180px] truncate rounded-full px-2.5 py-0.5 text-[13px] font-semibold ${
+                  o.own ? "bg-k-own/15 text-k-own" : "bg-k-lib/13 text-k-lib"
+                }`}
+              >
+                {o.label}
+              </span>
+            ))}
+          </div>
+        )}
+        {!charged && <span className="text-[13px] text-ink2">Not charged: billing failed</span>}
         <span className="flex-1" />
         {sent && <span className="mr-1 text-[13px] text-ink2">Thanks for the feedback</span>}
         <button

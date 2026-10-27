@@ -85,13 +85,26 @@ function passagesBlock(passages: KnowledgePassage[]): string {
   return `<passages>\n${items.join("\n\n")}\n</passages>`;
 }
 
+/** What sebtember says about one granted catalogue: Library or not (Step 1176), and whose
+ *  it is (Step 1177; `undefined` from an older sebtember). */
+export type CatalogueInfo = { library: boolean; owner?: { name: string | null } | null };
+
+/** Whose content a source is, for the answer card's "Source:" row: `null` = the user's own.
+ *  Without sebtember's owner (an older sebtember) a Library source is "Library". */
+export function ownerLabel(info: CatalogueInfo | undefined): string | null {
+  if (!info) return null;
+  if (info.owner === undefined) return info.library ? "Library" : null;
+  if (info.owner === null) return null;
+  return info.owner.name ?? "Another Sebtember user";
+}
+
 /** The passages the answer cites, keeping their numbers so [n] in the text still matches;
- *  an uncited passage is not a source of this answer. `libraryIds` are the granted
- *  catalogues sebtember marks `library` (Step 1176). */
+ *  an uncited passage is not a source of this answer. `catalogues` is what sebtember says
+ *  about each granted catalogue. */
 export function citedSources(
   answer: string,
   passages: KnowledgePassage[],
-  libraryIds: ReadonlySet<string> = new Set(),
+  catalogues: ReadonlyMap<string, CatalogueInfo> = new Map(),
 ): AskSource[] {
   const cited = new Set([...answer.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1])));
   return passages.flatMap((p, i) =>
@@ -102,7 +115,8 @@ export function citedSources(
             fileName: p.file_name,
             catalogueName: p.catalogue_name,
             page: p.page,
-            library: libraryIds.has(p.catalogue_id),
+            library: catalogues.get(p.catalogue_id)?.library ?? false,
+            owner: ownerLabel(catalogues.get(p.catalogue_id)),
           },
         ]
       : [],
@@ -116,6 +130,8 @@ export interface AskSource {
   page: string | null;
   /** From another user's published catalogue (Library), not the user's own. */
   library: boolean;
+  /** Whose content it is: `null` = the user's own, else the owner's name. */
+  owner: string | null;
 }
 
 export type AskResult =
@@ -145,11 +161,17 @@ export async function runAsk(
   if (wallet.balance < wallet.minimum) throw new AskRefused("low_balance");
   const runId = randomUUID();
 
-  // Which granted catalogues are Library ones, for the source cards. Read beside the search;
-  // a failure only means every source shows as the user's own.
-  const libraryIds = getKnowledgeCatalogues(uid)
-    .then(({ catalogues }) => new Set(catalogues.filter((c) => c.library).map((c) => c.id)))
-    .catch(() => new Set<string>());
+  // Which granted catalogues are Library ones and whose each is, for the source cards and
+  // the "Source:" row. Read beside the search; a failure only means every source shows as
+  // the user's own.
+  const catalogueInfo = getKnowledgeCatalogues(uid)
+    .then(
+      ({ catalogues }) =>
+        new Map<string, CatalogueInfo>(
+          catalogues.map((c) => [c.id, { library: c.library === true, owner: c.owner }]),
+        ),
+    )
+    .catch(() => new Map<string, CatalogueInfo>());
 
   let search: Awaited<ReturnType<typeof searchKnowledge>>;
   try {
@@ -198,7 +220,7 @@ export async function runAsk(
   return {
     kind: "answer",
     answer,
-    sources: citedSources(answer, search.passages, await libraryIds),
+    sources: citedSources(answer, search.passages, await catalogueInfo),
     tokens: searchTokens + answerTokens,
     balanceAfter,
     charged,
