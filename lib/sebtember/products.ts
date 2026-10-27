@@ -42,9 +42,11 @@ export class SebtemberApiError extends Error {
 }
 
 function settings() {
-  const origin = process.env.SEBTEMBER_API_ORIGIN;
-  const audience = process.env.SEBTEMBER_PRODUCT_API_AUDIENCE;
-  const key = process.env.PLUGENT_SERVICE_ACCOUNT_JSON;
+  // Trimmed: a pasted value often carries a trailing newline, and the audience must match
+  // sebtember's PRODUCT_API_AUDIENCE exactly (sebtember trims its own).
+  const origin = process.env.SEBTEMBER_API_ORIGIN?.trim();
+  const audience = process.env.SEBTEMBER_PRODUCT_API_AUDIENCE?.trim();
+  const key = process.env.PLUGENT_SERVICE_ACCOUNT_JSON?.trim();
   if (!origin || !audience || !key) {
     throw new SebtemberApiError(503, "not_configured");
   }
