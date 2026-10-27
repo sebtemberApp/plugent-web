@@ -106,7 +106,9 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 export interface KnowledgeCatalogues {
   /** false = the user never connected Plugent on sebtember.app's /connect/plugent. */
   connected: boolean;
-  catalogues: { id: string; name: string }[];
+  /** `library` (sebtember Step 1176): another user's published catalogue the user subscribes
+   *  to. Absent (an older sebtember) reads as the user's own. */
+  catalogues: { id: string; name: string; library?: boolean }[];
 }
 
 export interface KnowledgeSourcesPage {

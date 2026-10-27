@@ -1,0 +1,290 @@
+"use client";
+
+import { ArrowUp, Check, Copy } from "lucide-react";
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
+import { formatTokens, useBalance } from "@/components/shell/BalanceContext";
+import { AgentIcon } from "@/components/ui/AgentIcon";
+import { agentById } from "@/lib/agents/registry";
+import { AnswerText } from "./AnswerText";
+
+type Source = { n: number; fileName: string; catalogueName: string | null; page: string | null };
+
+type Turn = {
+  id: number;
+  question: string;
+  state:
+    | { kind: "pending" }
+    | {
+        kind: "answer";
+        answer: string;
+        sources: Source[];
+        tokens: number;
+        charged: boolean;
+      }
+    | { kind: "not_covered"; tokens: number }
+    | { kind: "error"; code: string };
+};
+
+const MAX_QUESTION_CHARS = 2000;
+const chat = agentById("chat");
+
+const ERRORS: Record<string, string> = {
+  low_balance: "Your Sebtember balance is too low for this. Top it up from the account menu.",
+  not_connected: "Plugent isn't connected to your Sebtember catalogues yet.",
+  invalid_question: "Type a question first (up to 2,000 characters).",
+  unauthorized: "Your session has ended. Reload the page to sign in again.",
+};
+
+/**
+ * The Chat agent (milestone 3's Ask, restyled): each question is answered from the
+ * connected catalogues, with its sources as cards. Questions are answered on their own and
+ * the conversation lives in this page until run history is stored.
+ */
+export function ChatAgent() {
+  const { spent } = useBalance();
+  const [turns, setTurns] = useState<Turn[]>([]);
+  const [question, setQuestion] = useState("");
+  const nextId = useRef(1);
+  const end = useRef<HTMLDivElement>(null);
+  const busy = turns.at(-1)?.state.kind === "pending";
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on every new turn or answer
+  useEffect(() => {
+    end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [turns]);
+
+  async function ask() {
+    const q = question.trim();
+    if (!q || busy) return;
+    const id = nextId.current++;
+    setTurns((t) => [...t, { id, question: q, state: { kind: "pending" } }]);
+    setQuestion("");
+    const settle = (state: Turn["state"]) =>
+      setTurns((t) => t.map((turn) => (turn.id === id ? { ...turn, state } : turn)));
+    try {
+      const res = await fetch("/api/agents/ask", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ question: q }),
+      });
+      const data = await res.json().catch(() => ({ error: `http_${res.status}` }));
+      if (!res.ok) return settle({ kind: "error", code: String(data.error ?? res.status) });
+      if (typeof data.balanceAfter === "number") spent(data.balanceAfter);
+      settle(
+        data.kind === "answer"
+          ? {
+              kind: "answer",
+              answer: data.answer,
+              sources: data.sources,
+              tokens: data.tokens,
+              charged: data.charged,
+            }
+          : { kind: "not_covered", tokens: data.tokens },
+      );
+    } catch {
+      settle({ kind: "error", code: "unreachable" });
+    }
+  }
+
+  const used = turns.reduce(
+    (sum, t) => sum + ("tokens" in t.state ? (t.state as { tokens: number }).tokens : 0),
+    0,
+  );
+  const asked = turns.length;
+
+  return (
+    <main className="flex min-h-[calc(100dvh-56px)] flex-1 flex-col min-[900px]:min-h-dvh">
+      <header className="flex items-center gap-3 border-hair border-b-[0.5px] px-4 py-3.5 min-[600px]:px-8">
+        <AgentIcon agent={chat} />
+        <div className="flex min-w-0 flex-col">
+          <h1 className="truncate text-[17px] font-bold">{turns[0]?.question ?? "Chat"}</h1>
+          <p className="text-[13px] text-ink2">
+            Chat
+            {asked > 0 &&
+              ` · ${asked} ${asked === 1 ? "question" : "questions"} · ${formatTokens(used)} tokens`}
+          </p>
+        </div>
+      </header>
+
+      <div className="mx-auto flex w-full max-w-[820px] flex-1 flex-col gap-5 px-4 py-7 min-[600px]:px-8">
+        {turns.length === 0 && (
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-center">
+            <AgentIcon agent={chat} size="card" />
+            <h2 className="text-[22px] font-bold">Ask your knowledge</h2>
+            <p className="max-w-[440px] text-[15px] leading-[22px] text-ink2">
+              The answer comes only from the Sebtember catalogues you connected, with the documents
+              it used. Each question is answered on its own.
+            </p>
+          </div>
+        )}
+        {turns.map((turn) => (
+          <TurnView key={turn.id} turn={turn} />
+        ))}
+        <div ref={end} />
+      </div>
+
+      <div className="sticky bottom-0 mx-auto w-full max-w-[820px] bg-gradient-to-t from-page from-70% to-transparent px-4 pt-3 pb-4 min-[600px]:px-8 min-[600px]:pb-6">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            ask();
+          }}
+          className="flex flex-col gap-2 rounded-card bg-card py-3 pr-3 pl-[18px] shadow-card focus-within:ring-2 focus-within:ring-act/35"
+        >
+          <label htmlFor="chat-question" className="sr-only">
+            Ask a question
+          </label>
+          <textarea
+            id="chat-question"
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                ask();
+              }
+            }}
+            rows={2}
+            maxLength={MAX_QUESTION_CHARS}
+            placeholder="Ask a question about your documents"
+            className="resize-none bg-transparent pt-1 text-[16px] leading-6 outline-none placeholder:text-ink2 focus-visible:outline-none"
+          />
+          <div className="flex items-center gap-2">
+            <span className="flex-1 text-[13px] text-ink2">
+              Enter to send, Shift+Enter for a new line
+            </span>
+            <button
+              type="submit"
+              aria-label="Send"
+              disabled={busy || question.trim().length === 0}
+              className="flex size-9 items-center justify-center rounded-full bg-act text-white hover:bg-act-press disabled:opacity-40"
+            >
+              <ArrowUp aria-hidden size={18} strokeWidth={2.2} />
+            </button>
+          </div>
+        </form>
+      </div>
+    </main>
+  );
+}
+
+function TurnView({ turn }: { turn: Turn }) {
+  const s = turn.state;
+  return (
+    <>
+      <div className="max-w-[80%] self-end rounded-list bg-fill2 px-4 py-3 text-[16px] leading-6 whitespace-pre-wrap">
+        {turn.question}
+      </div>
+      {s.kind === "pending" && (
+        <div className="flex items-center gap-3 rounded-card bg-card px-6 py-5 text-[15px] text-ink2 shadow-card">
+          <span className="size-2 animate-pulse rounded-full bg-act" />
+          Searching your catalogues and writing the answer…
+        </div>
+      )}
+      {s.kind === "error" && (
+        <div
+          role="alert"
+          className="flex flex-col gap-2 rounded-card bg-card px-6 py-5 shadow-card"
+        >
+          <p className="text-[15px] text-danger">
+            {ERRORS[s.code] ?? `Something went wrong (${s.code}). Try again.`}
+          </p>
+          {s.code === "not_connected" && (
+            <Link href="/knowledge" className="text-link text-[15px] font-semibold">
+              Connect catalogues
+            </Link>
+          )}
+        </div>
+      )}
+      {s.kind === "not_covered" && (
+        <article className="flex flex-col gap-3 rounded-card bg-card px-6 py-5 shadow-card">
+          <p className="text-[16px] leading-[26px]">
+            Your connected catalogues don't seem to cover this. Try other words, or{" "}
+            <Link href="/knowledge" className="text-link font-semibold">
+              connect more catalogues
+            </Link>
+            .
+          </p>
+          <TokenFooter tokens={s.tokens} />
+        </article>
+      )}
+      {s.kind === "answer" && (
+        <article className="flex flex-col gap-4 rounded-card bg-card px-6 py-5 shadow-card">
+          <AnswerText text={s.answer} />
+          {s.sources.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <span className="text-[13px] font-semibold text-ink2">Sources</span>
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-2">
+                {s.sources.map((src) => (
+                  <SourceCard key={src.n} source={src} />
+                ))}
+              </div>
+            </div>
+          )}
+          <TokenFooter tokens={s.tokens} charged={s.charged} copy={s.answer} />
+        </article>
+      )}
+    </>
+  );
+}
+
+function SourceCard({ source }: { source: Source }) {
+  const ext = /\.([a-z0-9]{2,5})$/i.exec(source.fileName)?.[1]?.toUpperCase() ?? "FILE";
+  const where = [source.page ? `p. ${source.page}` : null, source.catalogueName]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <div className="flex gap-2.5 rounded-inner bg-fill1 p-3">
+      <span className="flex h-10 w-8 shrink-0 items-center justify-center rounded-[6px] bg-card text-[10px] font-bold text-ink2 shadow-card">
+        {ext.slice(0, 4)}
+      </span>
+      <span className="flex min-w-0 flex-col">
+        <span className="flex items-center gap-1.5">
+          <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-[6px] bg-fill2 px-1 text-[12px] font-semibold text-ink2">
+            {source.n}
+          </span>
+          <span className="truncate text-[13px] font-semibold" title={source.fileName}>
+            {source.fileName}
+          </span>
+        </span>
+        {where && <span className="truncate text-[12px] text-ink2">{where}</span>}
+      </span>
+    </div>
+  );
+}
+
+function TokenFooter({
+  tokens,
+  charged = true,
+  copy,
+}: {
+  tokens: number;
+  charged?: boolean;
+  copy?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <footer className="flex items-center gap-1 border-hair border-t-[0.5px] pt-2">
+      {copy && (
+        <button
+          type="button"
+          aria-label={copied ? "Copied" : "Copy the answer"}
+          onClick={() =>
+            navigator.clipboard.writeText(copy).then(() => {
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1500);
+            })
+          }
+          className="flex size-9 items-center justify-center rounded-chip text-ink2 hover:bg-fill1"
+        >
+          {copied ? <Check aria-hidden size={18} /> : <Copy aria-hidden size={18} />}
+        </button>
+      )}
+      <span className="flex-1" />
+      <span className="text-[13px] text-ink2 tabular-nums">
+        {formatTokens(tokens)} tokens{charged ? "" : " (not charged: billing failed)"}
+      </span>
+    </footer>
+  );
+}
