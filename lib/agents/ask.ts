@@ -43,7 +43,6 @@ import { readUserContext } from "@/lib/agents/profile";
 import { sanitizeForPrompt, stripInlineFilenames } from "@/lib/agents/sanitize";
 import {
   type ChargeUsage,
-  charge,
   getBalance,
   getKnowledgeCatalogues,
   type KnowledgePassage,
@@ -51,6 +50,7 @@ import {
   SebtemberApiError,
   searchKnowledge,
 } from "@/lib/sebtember/products";
+import { chargeOrKeep } from "@/lib/unpaid";
 import { agentCharge, logCharge, searchCharge, type TurnCharge, usageOf } from "@/lib/usage";
 
 /** A Vercel AI Gateway model id; sebtember's RFQ and gateway chat answer run on it. */
@@ -368,13 +368,8 @@ export async function runAsk(
   let charged = true;
   if (answerTokens > 0) {
     const line = { id: `${runId}-answer`, tokens: answerTokens, operation: "ask_answer", usage };
-    // The line is idempotent on sebtember, so one retry can never charge twice.
-    const res = await charge(uid, wallet.source, [line]).catch(() =>
-      charge(uid, wallet.source, [line]).catch((err) => {
-        console.error(`[ask] charge failed uid=${uid} run=${runId} tokens=${answerTokens}`, err);
-        return null;
-      }),
-    );
+    // Kept for a retry when both attempts fail (`lib/unpaid.ts`); idempotent per line id.
+    const res = await chargeOrKeep("ask", uid, wallet.source, line);
     if (res) balanceAfter = res.balanceAfter;
     else charged = false;
   }

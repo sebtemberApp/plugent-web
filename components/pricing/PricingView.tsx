@@ -343,6 +343,16 @@ export function PricingView({
     return true;
   }
 
+  // Whether this page is still the one on screen: a new run's read takes minutes, and the user may
+  // open another page meanwhile. Its URL must not then pull them back (audit B1).
+  const onScreen = useRef(true);
+  useEffect(() => {
+    onScreen.current = true;
+    return () => {
+      onScreen.current = false;
+    };
+  }, []);
+
   async function onPick(file: File | null) {
     if (!file || busy) return;
     // Step 1159 — the type and the size are checked BEFORE the upload, for the
@@ -370,6 +380,7 @@ export function PricingView({
       // still says `draft` there, so moving the URL first dropped the read on the floor.
       router.refresh();
       const ok = await post("extract", undefined, newId);
+      if (!onScreen.current) return void router.refresh();
       if (ok === true) router.replace(`/agents/pricing/${newId}`, { scroll: false });
       // A refusal stays on this page so its sentence is not remounted away; the run is in the sidebar.
       else setActionError(typeof ok.error === "string" ? ok.error : "Couldn't read that file.");
@@ -1208,6 +1219,7 @@ export function PricingView({
                   label: o.isSelf ? "You" : o.name,
                   own: o.isSelf,
                 }))}
+                agent="pricing"
                 runId={docId}
                 question={state.sourceFilename}
                 answer={`Pricing of ${state.sourceFilename}: ${state.result.items.length} lines`}

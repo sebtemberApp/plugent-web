@@ -83,9 +83,9 @@ export default async function UsagePage({
     const seb = r.charges.filter((c) => c.by === "sebtember").reduce((s, c) => s + c.tokens, 0);
     return {
       id: r.id,
-      href: `${agent.href}/${r.id}`,
+      href: r.deleted ? null : `${agent.href}/${r.id}`,
       title: r.title,
-      meta: `${agent.name} · ${DAY.format(r.lastAt)}`,
+      meta: `${agent.name} · ${DAY.format(r.lastAt)}${r.deleted ? " · deleted" : ""}`,
       plg,
       seb,
       unsplit: r.unsplit,

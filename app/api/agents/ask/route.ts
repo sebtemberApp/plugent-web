@@ -3,15 +3,18 @@
  * the user is the session's, never the body's. The answered question is saved into the
  * run (a new one when `runId` is absent) and the response carries its `runId`.
  */
-import { type NextRequest, NextResponse } from "next/server";
+import { after, type NextRequest, NextResponse } from "next/server";
 import { AskRefused, HISTORY_MESSAGES, MAX_QUESTION_CHARS, runAsk } from "@/lib/agents/ask";
 import { getSessionUser } from "@/lib/auth/session";
 import { readPrefs } from "@/lib/prefs";
-import { historyFrom, isRunId, readRun, saveTurn } from "@/lib/runs";
+import { consumeRateLimit } from "@/lib/rate-limit";
+import { claimRun, historyFrom, isRunId, readRun, releaseRun, saveTurn } from "@/lib/runs";
 import { SebtemberApiError } from "@/lib/sebtember/products";
+import { retryUnpaid } from "@/lib/unpaid";
 
 export const runtime = "nodejs";
-export const maxDuration = 90;
+// Far above the model's own timeout (75 s deep), so the charge and the save always get to run.
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   const user = await getSessionUser();
@@ -29,27 +32,44 @@ export async function POST(req: NextRequest) {
   }
   const mode = body?.mode === "deep" ? "deep" : "standard";
   const runId = body?.runId == null ? null : String(body.runId);
-  // Checked before any money is spent: a stale or foreign run id is refused for free. The run's
-  // earlier turns are the conversation the model continues (sebtember chat's last 10 messages).
-  const run = runId !== null && isRunId(runId) ? await readRun(user.uid, runId) : null;
-  if (runId !== null && (!run || run.run.agent !== "chat")) {
-    return NextResponse.json({ error: "run_not_found" }, { status: 404 });
+  // Checked before any money is spent: a stale or foreign run id is refused for free, and the
+  // run is claimed, so a second question in the same chat waits for the first.
+  if (runId !== null) {
+    const claim = isRunId(runId) ? await claimRun(user.uid, runId, "chat") : null;
+    if (claim === null) return NextResponse.json({ error: "run_not_found" }, { status: 404 });
+    if (claim === "busy") return NextResponse.json({ error: "busy" }, { status: 409 });
   }
-  const history = run ? historyFrom(run.turns, HISTORY_MESSAGES) : [];
+  if (!(await consumeRateLimit(user.uid, "agents"))) {
+    if (runId) await releaseRun(user.uid, runId);
+    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+  }
+  // A charge an earlier run could not make is paid now, after this response.
+  after(() => retryUnpaid(user.uid, 5).catch((err) => console.error("[unpaid] retry", err)));
   try {
+    // The run's earlier turns are the conversation the model continues (sebtember chat's last
+    // 10 messages).
+    const run = runId ? await readRun(user.uid, runId) : null;
+    const history = run ? historyFrom(run.turns, HISTORY_MESSAGES) : [];
     const result = await runAsk(user.uid, question, mode, history);
     // The answer is paid for, so a failed save still returns it, without a run id.
-    const savedRunId = await saveTurn(user.uid, runId, "chat", question, result).catch((err) => {
+    const saved = await saveTurn(user.uid, runId, "chat", question, result).catch(async (err) => {
       console.error(`[ask] save failed uid=${user.uid}`, err);
+      if (runId) await releaseRun(user.uid, runId);
       return null;
     });
-    return NextResponse.json({ ...result, runId: savedRunId });
+    return NextResponse.json({
+      ...result,
+      runId: saved?.runId ?? null,
+      turnId: saved?.turnId ?? null,
+    });
   } catch (err) {
+    if (runId) await releaseRun(user.uid, runId);
     if (err instanceof AskRefused) {
       return NextResponse.json({ error: err.code }, { status: 403 });
     }
     if (err instanceof SebtemberApiError) {
       console.error("[ask] sebtember", err.status, err.code);
+      if (err.status === 429) return NextResponse.json({ error: "rate_limited" }, { status: 429 });
       return NextResponse.json({ error: err.code }, { status: 502 });
     }
     console.error("[ask]", err);

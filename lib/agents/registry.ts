@@ -44,7 +44,7 @@ export const AGENTS: readonly AgentEntry[] = [
   {
     id: "quotation",
     name: "Quotation",
-    description: "Turn a request into a quotation drafted from your documents.",
+    description: "Turn a product into a tender specification to send to suppliers.",
     href: "/agents/quotation",
     available: true,
     accent: "a-quo",
@@ -58,6 +58,10 @@ export const AGENTS: readonly AgentEntry[] = [
     accent: "a-price",
   },
 ];
+
+export function isAgentId(value: unknown): value is AgentId {
+  return AGENTS.some((a) => a.id === value);
+}
 
 export function agentById(id: AgentId): AgentEntry {
   const agent = AGENTS.find((a) => a.id === id);

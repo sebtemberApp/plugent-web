@@ -29,7 +29,7 @@ const SEBTEMBER = "https://sebtember.app";
 const PRICING = [
   {
     title: "Pay per run",
-    text: "Each run uses tokens for the work it does. Reading a finished result again is free, and a run that fails is not charged.",
+    text: "Each run uses tokens for the work it does. You pay only for the work that was done, and reading a finished result again is free.",
   },
   {
     title: "One balance with Sebtember",

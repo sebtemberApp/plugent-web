@@ -151,27 +151,44 @@ export async function runExists(uid: string, runId: string): Promise<boolean> {
   return (await runs(uid).doc(runId).get()).exists;
 }
 
+/** Longer than any agent route's `maxDuration` (300 s), so a live request is never read as dead. */
+const RUN_STALE_MS = 330_000;
+
 /**
- * The run's agent and the text its first turn started with (a specification's subject),
- * or null when the run does not exist (or is not this user's).
+ * Claims an existing run of `agent` for one request, so two quick questions in one thread cannot
+ * run at once on the same history (audit B4). The run's start, as `runStart` reads it; null when
+ * the run does not exist, is not this user's or is another agent's; "busy" while another request
+ * holds it. `saveTurn` releases the claim, and so does `releaseRun` on a failure.
  */
-export async function runStart(
+export async function claimRun(
   uid: string,
   runId: string,
-): Promise<{ agent: AgentId; first: string | null } | null> {
+  agent: AgentId,
+): Promise<{ first: string | null } | "busy" | null> {
   const ref = runs(uid).doc(runId);
-  const [doc, first] = await Promise.all([
-    ref.get(),
-    ref.collection("turns").orderBy("createdAt").limit(1).get(),
-  ]);
-  if (!doc.exists) return null;
-  const question = first.docs[0]?.get("question");
-  return { agent: doc.get("agent"), first: typeof question === "string" ? question : null };
+  const first = await ref.collection("turns").orderBy("createdAt").limit(1).get();
+  return plugentDb().runTransaction(async (tx) => {
+    const doc = await tx.get(ref);
+    if (!doc.exists || doc.get("agent") !== agent) return null;
+    const running = doc.get("running");
+    if (running && Date.now() - millis(running) < RUN_STALE_MS) return "busy";
+    tx.update(ref, { running: FieldValue.serverTimestamp() });
+    const question = first.docs[0]?.get("question");
+    return { first: typeof question === "string" ? question : null };
+  });
+}
+
+export async function releaseRun(uid: string, runId: string): Promise<void> {
+  await runs(uid)
+    .doc(runId)
+    .update({ running: FieldValue.delete() })
+    .catch((err) => console.error("[runs] release failed", err));
 }
 
 /**
  * Saves one answered question: into `runId`, or into a new run titled from the question
- * when `runId` is null. Returns the run id. The run and its turn are written together.
+ * when `runId` is null. Returns the run id and the turn's. The run and its turn are written
+ * together, and the run's claim (`claimRun`) is released with them.
  */
 export async function saveTurn(
   uid: string,
@@ -179,7 +196,7 @@ export async function saveTurn(
   agent: AgentId,
   question: string,
   result: AskResult,
-): Promise<string> {
+): Promise<{ runId: string; turnId: string }> {
   const db = plugentDb();
   const runRef = runId ? runs(uid).doc(runId) : runs(uid).doc();
   const turnRef = runRef.collection("turns").doc();
@@ -190,6 +207,7 @@ export async function saveTurn(
       updatedAt: now,
       tokensUsed: FieldValue.increment(result.tokens),
       turnCount: FieldValue.increment(1),
+      running: FieldValue.delete(),
     });
   } else {
     batch.set(runRef, {
@@ -226,7 +244,40 @@ export async function saveTurn(
         },
   );
   await batch.commit();
-  return runRef.id;
+  return { runId: runRef.id, turnId: turnRef.id };
+}
+
+/**
+ * One stored turn as feedback quotes it: the run's agent, and the question and answer as the
+ * user saw them. null when the run or the turn is not this user's.
+ */
+export async function readTurnForFeedback(
+  uid: string,
+  runId: string,
+  turnId: string | null,
+): Promise<{ agent: AgentId; question: string | null; answer: string | null } | null> {
+  const ref = runs(uid).doc(runId);
+  const [doc, turn] = await Promise.all([
+    ref.get(),
+    turnId && isRunId(turnId) ? ref.collection("turns").doc(turnId).get() : null,
+  ]);
+  if (!doc.exists) return null;
+  const agent = doc.get("agent") as AgentId;
+  const d = turn?.exists ? (turn.data() ?? {}) : null;
+  if (!d) return { agent, question: null, answer: null };
+  if (d.role === "step") {
+    const step = d.step ?? {};
+    return {
+      agent,
+      question: String(step.title ?? ""),
+      answer: `${step.title ?? ""}\n${step.instruction ?? ""}`,
+    };
+  }
+  if (d.role === "end") {
+    return { agent, question: "Troubleshooting result", answer: String(d.summary ?? "") };
+  }
+  if (d.role === "clarify") return { agent, question: null, answer: String(d.question ?? "") };
+  return { agent, question: String(d.question ?? ""), answer: String(d.answer ?? "") };
 }
 
 /** false when the run does not exist (or is not this user's). */
@@ -237,9 +288,39 @@ export async function renameRun(uid: string, runId: string, title: string): Prom
   return true;
 }
 
-/** Deletes the run and every turn under it. */
+/**
+ * Deletes the run and every turn under it. What its turns charged is kept first, as one
+ * `deleted_runs/{runId}` record (no question, no answer), so the Usage page still shows what the
+ * wallet really paid (audit B11).
+ */
 export async function deleteRun(uid: string, runId: string): Promise<void> {
-  await plugentDb().recursiveDelete(runs(uid).doc(runId));
+  const ref = runs(uid).doc(runId);
+  const [doc, turns] = await Promise.all([ref.get(), ref.collection("turns").get()]);
+  if (doc.exists) {
+    const spent = turns.docs.flatMap((t): Spent[] => {
+      const at = millis(t.get("createdAt"));
+      const charges = t.get("charges");
+      if (Array.isArray(charges) && charges.length > 0) return [{ at, charges }];
+      const tokens = Number(t.get("tokens") ?? 0);
+      return tokens > 0 ? [{ at, tokens }] : [];
+    });
+    if (spent.length > 0) {
+      await deletedRuns(uid)
+        .doc(runId)
+        .set({
+          agent: doc.get("agent"),
+          title: String(doc.get("title") ?? "Untitled"),
+          updatedAt: doc.get("updatedAt") ?? FieldValue.serverTimestamp(),
+          deletedAt: FieldValue.serverTimestamp(),
+          spent,
+        });
+    }
+  }
+  await plugentDb().recursiveDelete(ref);
+}
+
+function deletedRuns(uid: string) {
+  return plugentDb().collection("users").doc(uid).collection("deleted_runs");
 }
 
 /* ------------------------------------------------------------- troubleshooting */
@@ -287,8 +368,8 @@ export type TsTurnBody =
 
 export type TsTurn = TsTurnBody & { id: string; seq: number };
 
-/** A turn in flight longer than this is a crashed request, not a live one (route: 120 s). */
-const TS_STALE_MS = 150_000;
+/** A turn in flight longer than this is a crashed request, not a live one (route: 300 s). */
+const TS_STALE_MS = 330_000;
 
 export const TS_NEW_STATE: TsState = {
   problem: "",
@@ -545,63 +626,88 @@ export interface UsageRun {
   charges: Array<TurnCharge & { at: number }>;
   /** Tokens charged before turns kept their lines: a total that cannot be split. */
   unsplit: number;
+  /** The run was deleted: its charges are kept, its content is not. */
+  deleted: boolean;
 }
 
 const USAGE_RUNS = 200;
 
+/** What one turn cost: its lines, or a bare total from before turns kept them. */
+type Spent = { at: number; charges?: unknown; tokens?: unknown };
+
+function usageRun(
+  id: string,
+  meta: { agent: AgentId; title: string; deleted: boolean },
+  spent: Spent[],
+  inWindow: (at: number) => boolean,
+): UsageRun | null {
+  const charges: UsageRun["charges"] = [];
+  let unsplit = 0;
+  let lastAt = 0;
+  for (const t of spent) {
+    if (!inWindow(t.at)) continue;
+    if (Array.isArray(t.charges)) {
+      for (const c of t.charges as TurnCharge[]) {
+        if (!(Number(c?.tokens) > 0)) continue;
+        charges.push({ ...c, tokens: Number(c.tokens), at: t.at });
+        lastAt = Math.max(lastAt, t.at);
+      }
+      continue;
+    }
+    const tokens = Number(t.tokens ?? 0);
+    if (tokens > 0) {
+      unsplit += tokens;
+      lastAt = Math.max(lastAt, t.at);
+    }
+  }
+  if (charges.length === 0 && unsplit === 0) return null;
+  charges.sort((a, b) => a.at - b.at);
+  return { id, ...meta, lastAt, charges, unsplit };
+}
+
 /**
  * Every run with a charge in `[since, until)` (null = unbounded), each with its charges in that
- * window, newest run first. A turn written before `charges` existed counts its `tokens` as
- * `unsplit`: the total is real, who charged it is not recorded.
+ * window, newest run first; deleted runs come from their `deleted_runs` record. A turn written
+ * before `charges` existed counts its `tokens` as `unsplit`: the total is real, who charged it is
+ * not recorded.
  */
 export async function readUsage(
   uid: string,
   since: number | null,
   until: number | null,
 ): Promise<{ runs: UsageRun[]; truncated: boolean }> {
-  let query = runs(uid).orderBy("updatedAt", "desc");
-  if (since !== null) query = query.where("updatedAt", ">=", new Date(since));
-  const snap = await query.limit(USAGE_RUNS).get();
+  const window = <T extends FirebaseFirestore.Query>(q: T) =>
+    (since !== null ? q.where("updatedAt", ">=", new Date(since)) : q)
+      .orderBy("updatedAt", "desc")
+      .limit(USAGE_RUNS);
+  const [live, gone] = await Promise.all([window(runs(uid)).get(), window(deletedRuns(uid)).get()]);
   const inWindow = (at: number) =>
     (since === null || at >= since) && (until === null || at < until);
-  const read = await Promise.all(
-    snap.docs.map(async (doc): Promise<UsageRun | null> => {
+  const read = await Promise.all([
+    ...live.docs.map(async (doc) => {
       const turns = await doc.ref.collection("turns").get();
-      const charges: UsageRun["charges"] = [];
-      let unsplit = 0;
-      let lastAt = 0;
-      for (const t of turns.docs) {
-        const at = millis(t.get("createdAt"));
-        if (!inWindow(at)) continue;
-        const stored = t.get("charges");
-        if (Array.isArray(stored)) {
-          for (const c of stored as TurnCharge[]) {
-            if (!(Number(c?.tokens) > 0)) continue;
-            charges.push({ ...c, tokens: Number(c.tokens), at });
-            lastAt = Math.max(lastAt, at);
-          }
-          continue;
-        }
-        const tokens = Number(t.get("tokens") ?? 0);
-        if (tokens > 0) {
-          unsplit += tokens;
-          lastAt = Math.max(lastAt, at);
-        }
-      }
-      if (charges.length === 0 && unsplit === 0) return null;
-      charges.sort((a, b) => a.at - b.at);
-      return {
-        id: doc.id,
-        agent: doc.get("agent"),
-        title: String(doc.get("title") ?? "Untitled"),
-        lastAt,
-        charges,
-        unsplit,
-      };
+      return usageRun(
+        doc.id,
+        { agent: doc.get("agent"), title: String(doc.get("title") ?? "Untitled"), deleted: false },
+        turns.docs.map((t) => ({
+          at: millis(t.get("createdAt")),
+          charges: t.get("charges"),
+          tokens: t.get("tokens"),
+        })),
+        inWindow,
+      );
     }),
-  );
+    ...gone.docs.map(async (doc) =>
+      usageRun(
+        doc.id,
+        { agent: doc.get("agent"), title: String(doc.get("title") ?? "Untitled"), deleted: true },
+        Array.isArray(doc.get("spent")) ? (doc.get("spent") as Spent[]) : [],
+        inWindow,
+      ),
+    ),
+  ]);
   return {
     runs: read.filter((r): r is UsageRun => r !== null).sort((a, b) => b.lastAt - a.lastAt),
-    truncated: snap.size === USAGE_RUNS,
+    truncated: live.size === USAGE_RUNS || gone.size === USAGE_RUNS,
   };
 }

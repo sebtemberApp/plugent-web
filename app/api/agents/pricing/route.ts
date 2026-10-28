@@ -18,6 +18,7 @@ import { randomUUID } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/session";
 import { readPrefs } from "@/lib/prefs";
+import { consumeRateLimit } from "@/lib/rate-limit";
 import {
   createPricingRun,
   isRunId,
@@ -96,6 +97,8 @@ export async function POST(req: NextRequest) {
       if (size > (mimeType.startsWith("image/") ? MAX_IMAGE_BYTES : MAX_FILE_BYTES)) {
         return bad("too_large", 413);
       }
+      // A new pricing counts against the agents' rate limit; its later steps continue it.
+      if (!(await consumeRateLimit(uid, "agents"))) return bad("rate_limited", 429);
       const wallet = await getBalance(uid);
       if (wallet.balance < wallet.minimum) return bad("low_balance", 402);
       const started = await startPricing(uid, {

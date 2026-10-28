@@ -14,6 +14,7 @@ import {
   type StepOutcomeKind,
 } from "@/lib/agents/troubleshoot-prompts";
 import type { TsState, TsTurn } from "@/lib/runs";
+import { AgentError } from "./AgentError";
 import { AnswerFooter, ownersOf, SourceCard } from "./ChatAgent";
 
 const agent = agentById("troubleshooting");
@@ -27,13 +28,11 @@ const MAX_PHOTO_CHARS = 900_000;
 type Photo = { mediaType: string; data: string; thumb: string };
 type Pending = { text: string; thumb: string | null; outcome: boolean } | null;
 
+/** Troubleshooting's own sentences for a failed turn; `AgentError` has the shared ones. */
 const ERRORS: Record<string, string> = {
-  low_balance: "Your Sebtember balance is too low for this. Top it up from the account menu.",
-  not_connected: "Plugent can't read your Sebtember catalogues just now. Try again in a moment.",
   agent_off: "Troubleshooting is turned off. Turn it on in All agents to use it again.",
   invalid_question: "Describe the problem first (up to 4,000 characters), or add a photo.",
   invalid_photo: "That photo couldn't be read. Try a JPEG or PNG.",
-  unauthorized: "Your session has ended. Reload the page to sign in again.",
   run_not_found: "This troubleshooting was deleted. Start a new one.",
   busy: "The previous answer is still being worked out. Wait a moment and try again.",
   finished: "This troubleshooting is finished. Start a new one.",
@@ -88,6 +87,17 @@ export function TroubleshootAgent({
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const end = useRef<HTMLDivElement>(null);
+  // Which run the page shows, as a count: it moves when another run is opened here and when the
+  // page goes away, so a reply that lands after that cannot take over the URL (audit B1).
+  const shown = useRef(0);
+  // The last request, for the error card's Retry.
+  const lastSent = useRef<Parameters<typeof send>[0] | null>(null);
+  useEffect(
+    () => () => {
+      shown.current++;
+    },
+    [],
+  );
 
   // Another run (or a new one) opened from the sidebar: show it. The URL this page gave its
   // own new run arrives here too, and changes nothing.
@@ -97,10 +107,12 @@ export function TroubleshootAgent({
       setTitle(initialTitle);
       return;
     }
+    shown.current++;
     setRunId(initialRunId);
     setTitle(initialTitle);
     setState(initialState);
     setTurns(initialTurns);
+    setPending(null);
     setError(null);
   }, [initialRunId, initialTitle]);
 
@@ -122,6 +134,8 @@ export function TroubleshootAgent({
     label?: string;
   }) {
     if (busy) return;
+    lastSent.current = body;
+    const view = shown.current;
     const outgoing = body.outcome ? null : photo;
     setPending({
       text: body.label ?? body.text ?? "",
@@ -146,6 +160,12 @@ export function TroubleshootAgent({
         }),
       });
       const data = await res.json().catch(() => ({ error: `http_${res.status}` }));
+      if (typeof data.balanceAfter === "number") spent(data.balanceAfter);
+      // The user opened another run, or left: the reply is saved, the page stays where they went.
+      if (shown.current !== view) {
+        if (res.ok) router.refresh();
+        return;
+      }
       if (!res.ok) {
         setError(String(data.error ?? res.status));
         if (!body.outcome) {
@@ -154,7 +174,6 @@ export function TroubleshootAgent({
         }
         return;
       }
-      if (typeof data.balanceAfter === "number") spent(data.balanceAfter);
       setState(data.state);
       setTurns((ts) => {
         const done = (data.turns as TsTurn[]).find((t) => t.role === "user")?.outcome;
@@ -173,9 +192,9 @@ export function TroubleshootAgent({
       }
       router.refresh();
     } catch {
-      setError("unreachable");
+      if (shown.current === view) setError("unreachable");
     } finally {
-      setPending(null);
+      if (shown.current === view) setPending(null);
     }
   }
 
@@ -251,12 +270,11 @@ export function TroubleshootAgent({
           </>
         )}
         {error && (
-          <p
-            role="alert"
-            className="rounded-card bg-card px-6 py-5 text-[15px] text-danger shadow-card"
-          >
-            {ERRORS[error] ?? `Something went wrong (${error}). Try again.`}
-          </p>
+          <AgentError
+            code={error}
+            messages={ERRORS}
+            onRetry={lastSent.current ? () => send(lastSent.current ?? {}) : undefined}
+          />
         )}
         <div ref={end} />
       </div>
@@ -521,7 +539,9 @@ function TurnView({
         </div>
         <AnswerFooter
           owners={ownersOf(turn.sources)}
+          agent="troubleshooting"
           runId={runId}
+          turnId={turn.id}
           question={step.title}
           answer={`${step.title}\n${step.instruction}`}
           copy
@@ -548,7 +568,9 @@ function TurnView({
       {turn.summary && <p className="text-[16px] leading-[26px]">{turn.summary}</p>}
       <AnswerFooter
         owners={ownersOf(turn.sources)}
+        agent="troubleshooting"
         runId={runId}
+        turnId={turn.id}
         question="Troubleshooting result"
         answer={turn.summary}
         copy

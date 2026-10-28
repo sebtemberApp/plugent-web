@@ -7,7 +7,8 @@ import type { ChargeUsage } from "@/lib/sebtember/products";
 
 export interface UsageRunView {
   id: string;
-  href: string;
+  /** null for a deleted run: its charges stay, there is nothing to open. */
+  href: string | null;
   title: string;
   /** Agent and date, already spelled by the server. */
   meta: string;
@@ -128,9 +129,14 @@ export function UsageRuns({ runs }: { runs: UsageRunView[] }) {
                     </span>
                   </div>
                 )}
-                <Link href={r.href} className="self-start pl-1 text-[13px] font-semibold text-link">
-                  Open the run
-                </Link>
+                {r.href && (
+                  <Link
+                    href={r.href}
+                    className="self-start pl-1 text-[13px] font-semibold text-link"
+                  >
+                    Open the run
+                  </Link>
+                )}
               </div>
             )}
           </div>

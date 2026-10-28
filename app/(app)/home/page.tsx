@@ -18,7 +18,7 @@ export default async function Home() {
     <main className="mx-auto flex w-full max-w-[960px] flex-col gap-8 px-4 py-8 min-[600px]:px-8 min-[600px]:py-10">
       <PageHeader
         title="What do you want to do?"
-        lead="Pick an agent. It works from the Sebtember catalogues you connected."
+        lead="Pick an agent. It works from your Sebtember catalogues."
       />
       <section
         aria-label="Agents"

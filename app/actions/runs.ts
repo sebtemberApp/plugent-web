@@ -39,19 +39,27 @@ export async function deleteRunAction(
   const user = await getSessionUser();
   if (!user) return { ok: false, error: "unauthorized" };
   if (!isRunId(String(runId))) return { ok: false, error: "run_not_found" };
-  // A Pricing run's document lives in sebtember: delete it there first. A failure leaves an
-  // orphan only sebtember can see (and its own account deletion sweeps), never a broken row here.
+  // A Pricing run's document (and the tender file) lives in sebtember: delete it there first. If
+  // that fails the row stays, so the user is never told the file is gone while it is not.
   const pricing = await readPricingRun(user.uid, runId);
   if (pricing) {
     // Sebtember refuses to delete a running step (409 busy): stop it first, then delete.
     const remove = () => deletePricing(user.uid, pricing.pricingId);
-    await remove()
+    const removed = await remove()
       .catch(async (err) => {
+        if (err instanceof SebtemberApiError && err.status === 404) return; // already gone there
         if (!(err instanceof SebtemberApiError && err.code === "busy")) throw err;
         await cancelPricing(user.uid, pricing.pricingId, true);
         await remove();
       })
-      .catch((err) => console.error(`[runs] sebtember pricing delete failed run=${runId}`, err));
+      .then(
+        () => true,
+        (err) => {
+          console.error(`[runs] sebtember pricing delete failed run=${runId}`, err);
+          return false;
+        },
+      );
+    if (!removed) return { ok: false, error: "delete_failed" };
   }
   await deleteRun(user.uid, runId);
   revalidatePath("/", "layout");

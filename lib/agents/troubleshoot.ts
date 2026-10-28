@@ -54,13 +54,13 @@ import {
   type TsTurnBody,
 } from "@/lib/runs";
 import {
-  charge,
   getBalance,
   getKnowledgeCatalogues,
   type KnowledgePassage,
   SebtemberApiError,
   searchKnowledge,
 } from "@/lib/sebtember/products";
+import { chargeOrKeep } from "@/lib/unpaid";
 import { agentCharge, logCharge, searchCharge, type TurnCharge, usageOf } from "@/lib/usage";
 
 export const TS_MODEL = process.env.PLUGENT_TROUBLESHOOTING_MODEL?.trim() || "openai/gpt-5.4-mini";
@@ -377,12 +377,8 @@ async function respond(
       operation: "troubleshooting_turn",
       usage,
     };
-    const res = await charge(uid, wallet.source, [line]).catch(() =>
-      charge(uid, wallet.source, [line]).catch((err) => {
-        console.error(`[troubleshooting] charge failed uid=${uid} req=${requestId}`, err);
-        return null;
-      }),
-    );
+    // Kept for a retry when both attempts fail (`lib/unpaid.ts`); idempotent per line id.
+    const res = await chargeOrKeep("troubleshooting", uid, wallet.source, line);
     if (res) balanceAfter = res.balanceAfter;
     else charged = false;
   }

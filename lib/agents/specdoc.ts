@@ -35,13 +35,13 @@ import {
   withLanguage,
 } from "@/lib/agents/spec-prompts";
 import {
-  charge,
   getBalance,
   getKnowledgeCatalogues,
   type KnowledgePassage,
   SebtemberApiError,
   searchKnowledge,
 } from "@/lib/sebtember/products";
+import { chargeOrKeep } from "@/lib/unpaid";
 import { agentCharge, logCharge, searchCharge, usageOf } from "@/lib/usage";
 
 export type SpecDocAgent = "specification" | "quotation";
@@ -111,6 +111,9 @@ export function isDeclineOutput(output: string): boolean {
   return text.split("\n").filter((l) => l.trim().length > 0).length <= 4;
 }
 
+/** The refinements kept with a new one, newest last (the prompt lists the earlier ones). */
+const MAX_REFINEMENTS = 10;
+
 /** sebtember `scopeSpecRun`: retrieve the device's full datasheet, not the narrow subject. */
 function searchQuery(subject: string, refinement: string | null): string {
   const named = refinement ? `${subject} ${refinement}` : subject;
@@ -158,14 +161,19 @@ export function noReferenceMessage(subject: string): string {
 
 /**
  * Drafts one specification or tender text. `subject` is what the run was started with;
- * `refinement` is a follow-up typed in the same run (null for the first draft).
+ * `refinements` are the follow-ups typed in the same run, oldest first, the new one last (empty
+ * for the first draft). Sebtember's refinement wording carries the new one; the earlier ones are
+ * listed under it, because each draft is written afresh and would otherwise forget them.
  */
 export async function runSpecDoc(
   uid: string,
   agent: SpecDocAgent,
   subject: string,
-  refinement: string | null,
+  refinements: string[],
 ): Promise<AskResult> {
+  const kept = refinements.slice(-MAX_REFINEMENTS);
+  const refinement = kept.at(-1) ?? null;
+  const earlier = kept.slice(0, -1);
   const cfg = CONFIG[agent];
   const wallet = await getBalance(uid);
   if (wallet.balance < wallet.minimum) throw new AskRefused("low_balance");
@@ -220,6 +228,9 @@ export async function runSpecDoc(
     refinement
       ? `USER REFINEMENT: ${refinement}\nThis is the user's authoritative instruction for THIS run. If it identifies a device or material, produce the output for THAT one from the source answer + reference data — do NOT return the "multiple items" clarification even if the source answer covers several. If it is a presentation tweak, apply it. Either way the output stays the requested ${cfg.agentToken} output.`
       : "",
+    earlier.length > 0
+      ? `EARLIER REFINEMENTS IN THIS RUN (oldest first; they still apply unless USER REFINEMENT changes them):\n${earlier.map((r) => `- ${r}`).join("\n")}`
+      : "",
     cfg.produceLine,
   ].join("\n");
 
@@ -238,16 +249,8 @@ export async function runSpecDoc(
   let charged = true;
   if (draftTokens > 0) {
     const line = { id: `${runId}-draft`, tokens: draftTokens, operation: cfg.operation, usage };
-    // Idempotent per line id on sebtember, so one retry can never charge twice.
-    const res = await charge(uid, wallet.source, [line]).catch(() =>
-      charge(uid, wallet.source, [line]).catch((err) => {
-        console.error(
-          `[${agent}] charge failed uid=${uid} run=${runId} tokens=${draftTokens}`,
-          err,
-        );
-        return null;
-      }),
-    );
+    // Kept for a retry when both attempts fail (`lib/unpaid.ts`); idempotent per line id.
+    const res = await chargeOrKeep(agent, uid, wallet.source, line);
     if (res) balanceAfter = res.balanceAfter;
     else charged = false;
   }

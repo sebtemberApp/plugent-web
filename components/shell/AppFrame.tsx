@@ -56,7 +56,7 @@ export function AppFrame({
   }, [drawer]);
 
   return (
-    <BalanceProvider>
+    <BalanceProvider sebtemberUrl={sebtemberUrl}>
       <div className="flex min-h-dvh">
         {hidden ? (
           <aside className="sticky top-0 z-40 hidden h-dvh w-14 shrink-0 border-hair border-r-[0.5px] min-[900px]:block">

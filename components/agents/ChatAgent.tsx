@@ -9,8 +9,9 @@ import { formatTokens, useBalance } from "@/components/shell/BalanceContext";
 import { RunMenu } from "@/components/shell/RunMenu";
 import { AgentIcon } from "@/components/ui/AgentIcon";
 import type { AskMode } from "@/lib/agents/ask";
-import { agentById } from "@/lib/agents/registry";
+import { type AgentId, agentById } from "@/lib/agents/registry";
 import type { StoredTurn } from "@/lib/runs";
+import { AgentError } from "./AgentError";
 import { AnswerText } from "./AnswerText";
 import { ChatOutline, outlineTitle, turnAnchor } from "./ChatOutline";
 import { ModePicker } from "./ModePicker";
@@ -89,7 +90,7 @@ const UI: Record<
     newTitle: "New chat",
     emptyTitle: "Ask your knowledge",
     emptyText:
-      "The answer comes only from your Sebtember catalogues (paused ones are skipped), with the documents it used. Each question is answered on its own.",
+      "The answer comes only from your Sebtember catalogues (paused ones are skipped), with the documents it used. Follow-up questions keep the conversation.",
     placeholder: "Ask a question about your documents",
     followUp: "Ask a question about your documents",
     pending: "Searching your catalogues and writing the answer…",
@@ -127,15 +128,13 @@ const UI: Record<
   },
 };
 
-function errorText(code: string, name: string): string | undefined {
+/** Chat's own sentences for a failed turn; `AgentError` has the shared ones. */
+function errorMessages(name: string): Record<string, string> {
   return {
-    low_balance: "Your Sebtember balance is too low for this. Top it up from the account menu.",
-    not_connected: "Plugent can't read your Sebtember catalogues just now. Try again in a moment.",
     agent_off: `${name} is turned off. Turn it on in All agents to use it again.`,
     invalid_question: "Type something first (up to 2,000 characters).",
-    unauthorized: "Your session has ended. Reload the page to sign in again.",
     run_not_found: "This run was deleted. Start a new one to continue.",
-  }[code];
+  };
 }
 
 function fromStored(turns: StoredTurn[]): Turn[] {
@@ -160,8 +159,8 @@ function fromStored(turns: StoredTurn[]): Turn[] {
  * A thread agent: Chat, Specification or Quotation (`UI` holds what differs).
  * Chat (milestone 3's Ask, restyled): each question is answered from the
  * catalogues (minus the paused ones), with its sources as cards, and saved into the run. The first
- * answer of a new chat gives it its URL and a row in the sidebar. Questions are still
- * answered on their own: the model does not see the earlier turns.
+ * answer of a new chat gives it its URL and a row in the sidebar. A follow-up continues the
+ * conversation: the model sees the run's last 10 messages.
  */
 export function ChatAgent({
   runId: initialRunId,
@@ -192,6 +191,16 @@ export function ChatAgent({
   // lasts for this chat's questions.
   const [mode, setMode] = useState<AskMode>(defaultMode);
   const nextId = useRef(1);
+  // Which run the page shows, as a count: it moves when another run is opened here and when
+  // the page goes away. An answer that lands after it moved belongs to a run the user left,
+  // so it must not take over the URL or this thread.
+  const shown = useRef(0);
+  useEffect(
+    () => () => {
+      shown.current++;
+    },
+    [],
+  );
 
   // Another run (or a new chat) opened from the sidebar: show it. The URL this page gave
   // its own new run arrives here too, and changes nothing.
@@ -201,6 +210,7 @@ export function ChatAgent({
       setTitle(initialTitle);
       return;
     }
+    shown.current++;
     setRunId(initialRunId);
     setTitle(initialTitle);
     setTurns(fromStored(initialTurns));
@@ -223,8 +233,15 @@ export function ChatAgent({
       { id, question: q, state: { kind: "pending", deep: ui.modes && mode === "deep" } },
     ]);
     if (picked === undefined) setQuestion("");
-    const settle = (state: Turn["state"]) =>
-      setTurns((t) => t.map((turn) => (turn.id === id ? { ...turn, state } : turn)));
+    const view = shown.current;
+    const settle = (state: Turn["state"], storedId?: unknown) =>
+      setTurns((t) =>
+        t.map((turn) =>
+          turn.id === id
+            ? { ...turn, state, ...(typeof storedId === "string" ? { id: storedId } : {}) }
+            : turn,
+        ),
+      );
     try {
       const res = await fetch(ui.endpoint, {
         method: "POST",
@@ -232,8 +249,14 @@ export function ChatAgent({
         body: JSON.stringify(ui.body(q, runId, mode)),
       });
       const data = await res.json().catch(() => ({ error: `http_${res.status}` }));
-      if (!res.ok) return settle({ kind: "error", code: String(data.error ?? res.status) });
       if (typeof data.balanceAfter === "number") spent(data.balanceAfter);
+      // The user opened another run, or left, while this one worked: it is saved, so the
+      // sidebar gains it, and the page stays where the user went.
+      if (shown.current !== view) {
+        if (res.ok) router.refresh();
+        return;
+      }
+      if (!res.ok) return fail(String(data.error ?? res.status));
       if (typeof data.runId === "string") {
         if (data.runId !== runId) {
           setRunId(data.runId);
@@ -253,10 +276,24 @@ export function ChatAgent({
               ...(data.clarify ? { clarify: data.clarify } : {}),
             }
           : { kind: "not_covered", tokens: data.tokens },
+        data.turnId,
       );
     } catch {
-      settle({ kind: "error", code: "unreachable" });
+      if (shown.current === view) fail("unreachable");
     }
+
+    /** A failed turn gives its text back to the composer, so a retry is one click. */
+    function fail(code: string) {
+      settle({ kind: "error", code });
+      setQuestion((current) => current || q);
+    }
+  }
+
+  /** Asks a failed turn's question again in its place. */
+  function retry(failed: Turn) {
+    setTurns((t) => t.filter((turn) => turn.id !== failed.id));
+    setQuestion((current) => (current.trim() === failed.question ? "" : current));
+    void ask(failed.question);
   }
 
   const used = turns.reduce(
@@ -313,6 +350,8 @@ export function ChatAgent({
               first={i === 0}
               latest={i === turns.length - 1 && !busy}
               onOption={(option) => void ask(option)}
+              onRetry={retry}
+              agentId={agentId}
               name={agent.name}
               pending={ui.pending}
               sourceCards={ui.sourceCards}
@@ -388,12 +427,17 @@ function TurnView({
   sourceCards,
   latest,
   onOption,
+  onRetry,
+  agentId,
 }: {
+  agentId: ThreadAgent;
   turn: Turn;
   runId: string | null;
   /** The last turn of the chat: only its clarifying chips can be picked (sebtember's rule). */
   latest: boolean;
   onOption: (option: string) => void;
+  /** A failed turn asked again, as the latest turn. */
+  onRetry: (turn: Turn) => void;
   name: string;
   pending: string;
   sourceCards: boolean;
@@ -401,6 +445,8 @@ function TurnView({
   first: boolean;
 }) {
   const s = turn.state;
+  // A turn answered on this page has a local id until the answer names its stored one.
+  const storedId = turn.id.startsWith("local-") ? null : turn.id;
   return (
     <>
       <div
@@ -416,14 +462,11 @@ function TurnView({
         </div>
       )}
       {s.kind === "error" && (
-        <div
-          role="alert"
-          className="flex flex-col gap-2 rounded-card bg-card px-6 py-5 shadow-card"
-        >
-          <p className="text-[15px] text-danger">
-            {errorText(s.code, name) ?? `Something went wrong (${s.code}). Try again.`}
-          </p>
-        </div>
+        <AgentError
+          code={s.code}
+          messages={errorMessages(name)}
+          onRetry={latest ? () => onRetry(turn) : undefined}
+        />
       )}
       {s.kind === "not_covered" && (
         <article className="flex flex-col gap-3 rounded-card bg-card px-6 py-5 shadow-card">
@@ -434,7 +477,14 @@ function TurnView({
             </Link>{" "}
             that the right catalogue isn't paused.
           </p>
-          <AnswerFooter owners={[]} runId={runId} question={turn.question} answer="" />
+          <AnswerFooter
+            owners={[]}
+            agent={agentId}
+            runId={runId}
+            turnId={storedId}
+            question={turn.question}
+            answer=""
+          />
         </article>
       )}
       {s.kind === "answer" && s.clarify && (
@@ -471,7 +521,9 @@ function TurnView({
           <AnswerFooter
             owners={ownersOf(s.sources)}
             charged={s.charged}
+            agent={agentId}
             runId={runId}
+            turnId={storedId}
             question={turn.question}
             answer={s.answer}
             copy
@@ -528,14 +580,20 @@ const ICON_BUTTON =
 export function AnswerFooter({
   owners,
   charged = true,
+  agent,
   runId,
+  turnId = null,
   question,
   answer,
   copy = false,
 }: {
   owners: { label: string; own: boolean }[];
   charged?: boolean;
+  /** Whose answer it is, for the feedback note (the stored run's agent wins on the server). */
+  agent: AgentId;
   runId: string | null;
+  /** The stored turn, when there is one: the feedback quotes it from the store. */
+  turnId?: string | null;
   question: string;
   answer: string;
   copy?: boolean;
@@ -553,10 +611,12 @@ export function AnswerFooter({
     if (!text) return;
     setError(null);
     start(async () => {
-      const res = await sendFeedbackAction({ runId, question, answer, text }).catch(() => ({
-        ok: false as const,
-        error: "unreachable",
-      }));
+      const res = await sendFeedbackAction({ agent, runId, turnId, question, answer, text }).catch(
+        () => ({
+          ok: false as const,
+          error: "unreachable",
+        }),
+      );
       if (res.ok) {
         setSent(true);
         setWriting(false);
@@ -585,7 +645,9 @@ export function AnswerFooter({
             ))}
           </div>
         )}
-        {!charged && <span className="text-[13px] text-ink2">Not charged: billing failed</span>}
+        {!charged && (
+          <span className="text-[13px] text-ink2">Not charged yet: billing will try again</span>
+        )}
         <span className="flex-1" />
         {sent && <span className="mr-1 text-[13px] text-ink2">Thanks for the feedback</span>}
         <button

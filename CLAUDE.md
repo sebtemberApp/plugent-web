@@ -17,10 +17,14 @@ built like PeakPick. It NEVER reads sebtember's Firestore or vectors directly. T
   `source` on the run, `charge` with the run's own id as the line id (idempotent). Never re-resolve the source.
   Every line carries its raw model `usage` (`lib/usage.ts`: model, input, output, reasoning, cached), logged as
   one `[charge]` line and kept on the turn; usage never prices a line.
+- ⚠️ **A FAILED CHARGE IS KEPT, NEVER DROPPED** — every agent charges through `chargeOrKeep` (`lib/unpaid.ts`): two
+  attempts, then `unpaid_charges/{lineId}` with the stored source, retried after the user's next run and by the daily
+  cron `/api/cron/unpaid-charges` (needs `CRON_SECRET` in Vercel). Agent routes run 300 s, far above their model
+  timeouts, so the charge and the save always get to run; a chat or spec run is claimed (`claimRun`) per request.
 - **A sebtember-side API change ships before the Plugent change that uses it.**
 - ⚠️ **Plugent's Firestore is SERVER-ONLY** (`lib/firebase/admin.ts`, the same service-account key;
   `firestore.rules` denies every client). Runs live under `users/{uid}/runs/{runId}` + `turns/`, so a run id
-  can never reach another user's run; only `lib/runs.ts` touches them. Suggestions: `agent_suggestions`; answer feedback: `answer_feedback`; preferences (agents turned off, Chat's default mode): `users/{uid}`, only `lib/prefs.ts`. An agent turned off is hidden from the sidebar and Home and its route refuses (403 `agent_off`).
+  can never reach another user's run; only `lib/runs.ts` touches them. Suggestions: `agent_suggestions`; answer feedback: `answer_feedback` (the stored run names the agent and quotes the turn); rate limits: `rate_limits/{uid}_{scope}_{minute}` (`lib/rate-limit.ts`, 20 runs a minute, every agent route); a deleted run's charges: `users/{uid}/deleted_runs` (the Usage page keeps them); preferences (agents turned off, Chat's default mode): `users/{uid}`, only `lib/prefs.ts`. An agent turned off is hidden from the sidebar and Home and its route refuses (403 `agent_off`).
 - ⚠️ **AGENT PROMPTS ARE SEBTEMBER'S, COPIED VERBATIM** — Chat (`lib/agents/chat-prompt.ts`: sebtember's
   `SYSTEM_INSTRUCTION_GPT`, language block, chunk header and version reminder, fed in sebtember's block order by
   `buildAskPrompt`), Specification/Quotation (`lib/agents/spec-prompts.ts`) and

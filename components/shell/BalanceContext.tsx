@@ -12,12 +12,20 @@ interface BalanceApi {
   /** After a run: the wallet's balance as sebtember reported it with the charge. */
   spent: (balanceAfter: number) => void;
   refresh: () => void;
+  /** Sebtember's Usage page, where the wallet is topped up; null when the origin is unknown. */
+  topUpUrl: string | null;
 }
 
 const Ctx = createContext<BalanceApi | null>(null);
 
 /** The user's Sebtember wallet, read once per page load and updated by each run's charge. */
-export function BalanceProvider({ children }: { children: React.ReactNode }) {
+export function BalanceProvider({
+  children,
+  sebtemberUrl = null,
+}: {
+  children: React.ReactNode;
+  sebtemberUrl?: string | null;
+}) {
   const [balance, setBalance] = useState<Balance>({ state: "loading" });
 
   const refresh = useCallback(() => {
@@ -39,7 +47,8 @@ export function BalanceProvider({ children }: { children: React.ReactNode }) {
     setBalance((b) => (b.state === "ready" ? { ...b, balance: balanceAfter } : b));
   }, []);
 
-  return <Ctx.Provider value={{ balance, spent, refresh }}>{children}</Ctx.Provider>;
+  const topUpUrl = sebtemberUrl ? new URL("/usage", sebtemberUrl).toString() : null;
+  return <Ctx.Provider value={{ balance, spent, refresh, topUpUrl }}>{children}</Ctx.Provider>;
 }
 
 export function useBalance(): BalanceApi {

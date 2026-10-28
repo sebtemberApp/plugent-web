@@ -4,17 +4,20 @@
  * described problem or an answer (text and/or a photo), or the outcome of the current step.
  * The user is the session's, never the body's; the run and its state are read from the store.
  */
-import { type NextRequest, NextResponse } from "next/server";
+import { after, type NextRequest, NextResponse } from "next/server";
 import { AskRefused } from "@/lib/agents/ask";
 import { respondTroubleshooting, TS_LIMITS, TsRefused } from "@/lib/agents/troubleshoot";
 import type { StepOutcomeKind } from "@/lib/agents/troubleshoot-prompts";
 import { getSessionUser } from "@/lib/auth/session";
 import { readPrefs } from "@/lib/prefs";
+import { consumeRateLimit } from "@/lib/rate-limit";
 import { isRunId } from "@/lib/runs";
 import { SebtemberApiError } from "@/lib/sebtember/products";
+import { retryUnpaid } from "@/lib/unpaid";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+// Far above the two model calls' own timeouts (45 s each), so the charge and the save run.
+export const maxDuration = 300;
 
 const OUTCOMES: readonly StepOutcomeKind[] = ["done", "nothing", "skip", "fixed"];
 const PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -73,6 +76,8 @@ export async function POST(req: NextRequest) {
   const prefs = await readPrefs(user.uid).catch(() => null);
   if (!prefs) return bad("unavailable", 503);
   if (prefs.disabledAgents.includes("troubleshooting")) return bad("agent_off", 403);
+  if (!(await consumeRateLimit(user.uid, "agents"))) return bad("rate_limited", 429);
+  after(() => retryUnpaid(user.uid, 5).catch((err) => console.error("[unpaid] retry", err)));
 
   try {
     const result = await respondTroubleshooting(user.uid, {
@@ -90,7 +95,7 @@ export async function POST(req: NextRequest) {
     if (err instanceof AskRefused) return bad(err.code, 403);
     if (err instanceof SebtemberApiError) {
       console.error("[troubleshooting] sebtember", err.status, err.code);
-      return bad(err.code, 502);
+      return err.status === 429 ? bad("rate_limited", 429) : bad(err.code, 502);
     }
     console.error("[troubleshooting]", err);
     return bad("answer_failed", 502);
