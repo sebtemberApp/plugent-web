@@ -21,7 +21,9 @@ built like PeakPick. It NEVER reads sebtember's Firestore or vectors directly. T
 - ⚠️ **Plugent's Firestore is SERVER-ONLY** (`lib/firebase/admin.ts`, the same service-account key;
   `firestore.rules` denies every client). Runs live under `users/{uid}/runs/{runId}` + `turns/`, so a run id
   can never reach another user's run; only `lib/runs.ts` touches them. Suggestions: `agent_suggestions`; answer feedback: `answer_feedback`; preferences (agents turned off, Chat's default mode): `users/{uid}`, only `lib/prefs.ts`. An agent turned off is hidden from the sidebar and Home and its route refuses (403 `agent_off`).
-- ⚠️ **AGENT PROMPTS ARE SEBTEMBER'S, COPIED VERBATIM** — Specification/Quotation (`lib/agents/spec-prompts.ts`) and
+- ⚠️ **AGENT PROMPTS ARE SEBTEMBER'S, COPIED VERBATIM** — Chat (`lib/agents/chat-prompt.ts`: sebtember's
+  `SYSTEM_INSTRUCTION_GPT`, language block, chunk header and version reminder, fed in sebtember's block order by
+  `buildAskPrompt`), Specification/Quotation (`lib/agents/spec-prompts.ts`) and
   Troubleshooting (`lib/agents/troubleshoot-prompts.ts`) carry sebtember's eval-chosen prompts; change them in sebtember first,
   then copy. Every agent reads knowledge only through `searchKnowledge` and charges through `charge`.
 - ⚠️ **PRICING RUNS ON SEBTEMBER'S ENGINE** (`/api/products/pricing/*`, `lib/sebtember/pricing.ts`); sebtember charges

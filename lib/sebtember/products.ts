@@ -172,6 +172,19 @@ export function setCataloguePaused(
   return post("/api/products/knowledge/pause", { uid, catalogue_id: catalogueId, paused });
 }
 
+/** The user's Sebtember profile (sebtember Step 1183): reply language and their own notes. */
+export interface ProductProfile {
+  display_name: string | null;
+  /** A language code, "" when unset (a retired language reads as unset). */
+  preferred_language: string;
+  persona_md: string;
+  languages: { code: string; name: string }[];
+}
+
+export function getProfile(uid: string): Promise<ProductProfile> {
+  return post<ProductProfile>("/api/products/profile", { uid });
+}
+
 export function getBalance(uid: string): Promise<ProductBalance> {
   return post<ProductBalance>("/api/products/balance", { uid });
 }
