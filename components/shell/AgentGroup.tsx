@@ -3,8 +3,11 @@
 import { ChevronDown, Plus } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
+import { olderRunsAction } from "@/app/actions/run-history";
 import { AgentIcon } from "@/components/ui/AgentIcon";
 import type { AgentEntry } from "@/lib/agents/registry";
+import { SIDEBAR_RUNS } from "@/lib/run-pages";
 import type { RunSummary } from "@/lib/runs";
 import { RunList } from "./RunList";
 
@@ -12,6 +15,10 @@ import { RunList } from "./RunList";
  * One agent in the sidebar: "+ New" under the heading always starts a new session; the
  * heading's chevron folds the agent's runs (newest first) below it. An agent that is not built yet is a
  * heading with "Soon" and nothing to fold.
+ *
+ * The layout reads only the SIDEBAR_RUNS newest runs across all agents; when that read was cut,
+ * "Show more" reads this agent's older runs a page at a time (`olderRunsAction`). They are kept
+ * here, behind the layout's runs, and a run the layout now returns (it was updated) wins.
  */
 export function AgentGroup({
   agent,
@@ -28,6 +35,11 @@ export function AgentGroup({
   onNavigate?: () => void;
 }) {
   const path = usePathname();
+  const [older, setOlder] = useState<RunSummary[]>([]);
+  // undefined: not read yet; null: nothing older is left.
+  const [cursor, setCursor] = useState<number | null | undefined>(undefined);
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
   const heading =
     "flex h-10 w-full items-center gap-3 rounded-control px-2.5 text-left text-[15px]";
 
@@ -47,6 +59,28 @@ export function AgentGroup({
 
   const panel = `agent-group-${agent.id}`;
   const fresh = path === agent.href;
+  const recent = runs?.filter((r) => r.agent === agent.id) ?? [];
+  const shown = new Set(recent.map((r) => r.id));
+  const list = [...recent, ...older.filter((r) => !shown.has(r.id))];
+  const oldest = runs?.[runs.length - 1]?.updatedAt;
+  const canShowMore =
+    runs !== null &&
+    (cursor === undefined ? runs.length >= SIDEBAR_RUNS && oldest !== undefined : cursor !== null);
+
+  async function showMore() {
+    const before = cursor ?? oldest;
+    if (loading || before == null) return;
+    setLoading(true);
+    setFailed(false);
+    const res = await olderRunsAction(agent.id, before).catch(() => null);
+    setLoading(false);
+    if (!res?.ok) return setFailed(true);
+    setOlder((o) => {
+      const have = new Set(o.map((r) => r.id));
+      return [...o, ...res.runs.filter((r) => !have.has(r.id))];
+    });
+    setCursor(res.cursor);
+  }
   return (
     <div className="flex flex-col gap-0.5">
       <button
@@ -85,10 +119,26 @@ export function AgentGroup({
               <p className="py-1 pl-2.5 text-[12px] text-ink2">History unavailable just now</p>
             ) : (
               <RunList
-                runs={runs.filter((r) => r.agent === agent.id)}
+                runs={list}
                 hrefFor={(id) => `${agent.href}/${id}`}
                 onNavigate={onNavigate}
+                onRemoved={(id) => setOlder((o) => o.filter((r) => r.id !== id))}
               />
+            )}
+            {canShowMore && (
+              <button
+                type="button"
+                onClick={showMore}
+                disabled={loading}
+                className="flex h-8 w-full items-center rounded-chip pl-2.5 text-left text-[13px] font-semibold text-link hover:bg-fill1 disabled:opacity-60"
+              >
+                {loading ? "Loading…" : "Show more"}
+              </button>
+            )}
+            {failed && (
+              <p role="alert" className="py-1 pl-2.5 text-[12px] text-danger">
+                Couldn't load older runs. Try again.
+              </p>
             )}
           </div>
         )}

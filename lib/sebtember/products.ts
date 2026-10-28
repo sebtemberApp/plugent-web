@@ -185,6 +185,20 @@ export function getProfile(uid: string): Promise<ProductProfile> {
   return post<ProductProfile>("/api/products/profile", { uid });
 }
 
+/** The most a persona brief may hold (sebtember's `PRODUCT_PERSONA_MAX_CHARS`). A longer one is
+ *  refused there, never cut. */
+export const PERSONA_MAX_CHARS = 8000;
+
+/** Saves the user's reply language and/or persona brief (sebtember Step 1183); "" clears a
+ *  field, an absent one is left. Answers the profile as `getProfile` does. 400
+ *  `unknown_language` for a code the picker does not offer. */
+export function updateProfile(
+  uid: string,
+  update: { preferred_language?: string; persona_md?: string },
+): Promise<ProductProfile> {
+  return post<ProductProfile>("/api/products/profile/update", { uid, ...update });
+}
+
 export function getBalance(uid: string): Promise<ProductBalance> {
   return post<ProductBalance>("/api/products/balance", { uid });
 }
