@@ -14,6 +14,7 @@ import type { StoredTurn } from "@/lib/runs";
 import { AgentError } from "./AgentError";
 import { AnswerText } from "./AnswerText";
 import { ChatOutline, outlineTitle, turnAnchor } from "./ChatOutline";
+import { MicButton } from "./MicButton";
 import { ModePicker } from "./ModePicker";
 import { ShareButton } from "./ShareButton";
 
@@ -403,6 +404,10 @@ export function ChatAgent({
                 Enter to send, Shift+Enter for a new line
               </span>
               <span className="flex-1 min-[521px]:hidden" />
+              <MicButton
+                disabled={busy}
+                onText={(text) => setQuestion((q) => (q.trim() ? `${q.trimEnd()} ${text}` : text))}
+              />
               <button
                 type="submit"
                 aria-label="Send"

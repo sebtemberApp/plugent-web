@@ -16,6 +16,7 @@ import {
 import type { TsState, TsTurn } from "@/lib/runs";
 import { AgentError } from "./AgentError";
 import { AnswerFooter, ownersOf, SourceCard } from "./ChatAgent";
+import { MicButton } from "./MicButton";
 
 const agent = agentById("troubleshooting");
 const MAX_STEPS = 8;
@@ -375,6 +376,12 @@ export function TroubleshootAgent({
               <span className="flex-1 truncate text-[13px] text-ink2">
                 Steps only from your documents
               </span>
+              <MicButton
+                disabled={busy}
+                onText={(spoken) =>
+                  setText((t) => (t.trim() ? `${t.trimEnd()} ${spoken}` : spoken))
+                }
+              />
               <button
                 type="submit"
                 aria-label="Send"
