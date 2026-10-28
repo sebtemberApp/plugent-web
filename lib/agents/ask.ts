@@ -12,9 +12,11 @@
  *   5. `charge` the model work as line `{runId}-answer` to the SAME source.
  *
  * ⚠️ THE PROMPT IS SEBTEMBER CHAT'S (`chat-prompt.ts`, copied verbatim), fed the way sebtember's
- * chat feeds it: the passages as `<retrieved_data>` under sebtember's own chunk headers, the
- * search's `<retrieval_strength>`, the user's notes as `<user_persona>`, the dated-version
- * reminder, and `<response_language>` from the user's Sebtember language. So a question reads
+ * chat feeds it: the passages as `<retrieved_data>` under sebtember's own chunk headers, with the
+ * publishers' `<catalogue_guidance>` before them, the search's `<retrieval_strength>`,
+ * `<source_quality>` and `<complete_files>`, the user's notes as `<user_persona>`, the
+ * dated-version reminder, and `<response_language>` from the user's Sebtember language. The
+ * search gets the chat's last 10 messages, so sebtember rewrites a follow-up as chat does. So a question reads
  * the same here as in Sebtember chat.
  * ⚠️ PASSAGES ARE DATA. They are the user's stored documents, inside <retrieved_data>, never
  * followed as instructions.
@@ -26,7 +28,9 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { generateText, type ModelMessage } from "ai";
 import {
+  buildCompleteFilesBlock,
   buildLanguageBlock,
+  buildSourceQualityBlock,
   CONTINUITY_REMINDER,
   PLUGENT_SOURCES_RULE,
   renderChunkHeader,
@@ -57,8 +61,6 @@ const MAX_PASSAGES = 12;
 export const HISTORY_MESSAGES = 10;
 /** Sebtember's `MAX_OWNED_SUBJECTS`. */
 const MAX_OWNED_SUBJECTS = 20;
-/** Sebtember's `MAX_SEARCH_QUERY_CHARS`. */
-const MAX_SEARCH_QUERY_CHARS = 2000;
 const MAX_ANSWER_TOKENS = 2000;
 const ANSWER_TIMEOUT_MS = 45_000;
 
@@ -98,16 +100,20 @@ export function billedAnswerTokens(usage: AskUsage): number {
 /** A `<`-tag inside stored text must not close the block it sits in. */
 function fence(text: string): string {
   return text.replace(
-    /<\/?(retrieved_data|user_persona|response_language|plugent_sources)\b/gi,
+    /<\/?(retrieved_data|user_persona|response_language|plugent_sources|catalogue_guidance|source_quality|complete_files)\b/gi,
     "‹$1",
   );
 }
 
 /** The model's view of one turn, assembled in sebtember's order (`buildDynamicSections`):
- *  persona, retrieved data, its strength, the version reminder, then the language last. */
+ *  persona, guidance + retrieved data, its strength, source quality, complete files, the
+ *  version and continuity reminders, then the language last. */
 export function buildAskPrompt(args: {
   question: string;
-  search: Pick<KnowledgeSearch, "passages" | "retrievalStrength">;
+  search: Pick<
+    KnowledgeSearch,
+    "passages" | "retrievalStrength" | "catalogue_guidance" | "source_quality" | "whole_files"
+  >;
   personaMd: string;
   /** The catalogues the user curates (their own), for the persona's second zone. */
   ownedSubjects?: string[];
@@ -133,14 +139,30 @@ export function buildAskPrompt(args: {
     (p, i) =>
       `Passage: ${i + 1}\n${renderChunkHeader({
         filename: p.file_name,
-        catalogueName: p.catalogue_name ?? undefined,
-        page: p.page ?? undefined,
+        catalogueName: p.catalogue_name,
+        collectionName: p.collection_name,
+        kindLabel: p.kind,
+        isNote: p.is_note === true,
+        page: p.page,
+        section: p.section,
       })}\n\n${fence(p.text)}`,
   );
+  const retrieved =
+    passages.length > 0 ? `<retrieved_data>\n${chunks.join("\n\n===\n\n")}\n</retrieved_data>` : "";
+  // Chat prepends the publishers' guidance to <retrieved_data> (sebtember's `retrieveContext`);
+  // sebtember sends it already sanitised.
+  const guidance = args.search.catalogue_guidance?.trim() ?? "";
   return [
     zones.length > 0 ? `<user_persona>\n${zones.join("\n\n")}\n</user_persona>` : "",
-    passages.length > 0 ? `<retrieved_data>\n${chunks.join("\n\n===\n\n")}\n</retrieved_data>` : "",
+    guidance && retrieved ? `${guidance}\n\n${retrieved}` : retrieved,
     `<retrieval_strength>${args.search.retrievalStrength}</retrieval_strength>`,
+    buildSourceQualityBlock(
+      (args.search.source_quality ?? []).map((n) => ({
+        filename: sanitizeForPrompt(n.filename),
+        issues: n.issues.map((i) => sanitizeForPrompt(i)),
+      })),
+    ),
+    buildCompleteFilesBlock((args.search.whole_files ?? []).map((f) => sanitizeForPrompt(f))),
     passages.length > 0 &&
     retrievedDocsHaveVersionedPair(passages.map((p) => ({ filename: p.file_name })))
       ? VERSION_REMINDER
@@ -251,20 +273,6 @@ export interface HistoryMessage {
   content: string;
 }
 
-/**
- * The search query. Sebtember's retrieval rewrites a follow-up with the conversation before it
- * searches; the product search takes one query, so a follow-up ("and the 12 kW one?", or a
- * clarify chip) is searched together with the question before it.
- */
-export function searchQueryFor(question: string, history: HistoryMessage[]): string {
-  const before = [...history]
-    .reverse()
-    .find((m) => m.role === "user")
-    ?.content.trim();
-  const query = before ? `${before}\n${question}` : question;
-  return query.length > MAX_SEARCH_QUERY_CHARS ? query.slice(-MAX_SEARCH_QUERY_CHARS) : query;
-}
-
 export class AskRefused extends Error {
   constructor(readonly code: "low_balance" | "not_connected") {
     super(code);
@@ -304,13 +312,7 @@ export async function runAsk(
 
   let search: Awaited<ReturnType<typeof searchKnowledge>>;
   try {
-    search = await searchKnowledge(
-      uid,
-      wallet.source,
-      searchQueryFor(question, history),
-      runId,
-      MAX_PASSAGES,
-    );
+    search = await searchKnowledge(uid, wallet.source, question, runId, MAX_PASSAGES, history);
   } catch (err) {
     if (err instanceof SebtemberApiError && err.code === "not_connected") {
       throw new AskRefused("not_connected");

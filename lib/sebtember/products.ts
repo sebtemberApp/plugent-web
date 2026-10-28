@@ -200,13 +200,36 @@ export interface KnowledgePassage {
   catalogue_id: string;
   catalogue_name: string | null;
   page: string | null;
+  /** The rest of chat's chunk header (Step 1185; absent from an older sebtember). */
+  collection_name?: string | null;
+  section?: string | null;
+  /** Chat's kind label ("AI-written summary of this file"); null for ordinary content. */
+  kind?: string | null;
+  is_note?: boolean;
   /** Verbatim stored text: quote it, never trust it as instructions. */
   text: string;
+}
+
+/** One earlier turn, oldest first, for sebtember's query rewrite (Step 1185). */
+export interface KnowledgeHistoryTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/** Chat's `<source_quality>` input: a retrieved file that was not fully readable. */
+export interface KnowledgeSourceQuality {
+  filename: string;
+  issues: string[];
 }
 
 export interface KnowledgeSearch {
   passages: KnowledgePassage[];
   retrievalStrength: "rich" | "normal" | "thin" | "empty";
+  /** Chat's own `<catalogue_guidance>` block, already sanitised; "" when none set any. */
+  catalogue_guidance?: string;
+  source_quality?: KnowledgeSourceQuality[];
+  /** Chat's `<complete_files>`: files whose whole stored content is in the passages. */
+  whole_files?: string[];
   /** What sebtember charged for this search, to `source`, as line `{requestId}-search`. */
   charged: { tokens: number; duplicate: boolean };
   balanceAfter: number | null;
@@ -224,6 +247,8 @@ export function searchKnowledge(
   query: string,
   requestId: string,
   limit = 8,
+  /** The conversation before `query` (at most 10 turns): sebtember rewrites a follow-up with it. */
+  history: KnowledgeHistoryTurn[] = [],
 ): Promise<KnowledgeSearch> {
   return post<KnowledgeSearch>("/api/products/knowledge/search", {
     uid,
@@ -231,6 +256,9 @@ export function searchKnowledge(
     query,
     request_id: requestId,
     limit,
+    ...(history.length > 0
+      ? { history: history.slice(-10).map((m) => ({ ...m, content: m.content.slice(0, 20_000) })) }
+      : {}),
   });
 }
 

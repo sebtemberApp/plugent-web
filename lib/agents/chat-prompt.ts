@@ -407,6 +407,33 @@ export function renderChunkHeader(m: ChunkHeaderMeta): string {
   return headerLines.join("\n");
 }
 
+/** Sebtember's `buildSourceQualityBlock` (`lib/chat/source-quality.ts`), verbatim. */
+export function buildSourceQualityBlock(
+  notes: readonly { filename: string; issues: readonly string[] }[],
+): string {
+  if (notes.length === 0) return "";
+  const lines = notes.map((n) => `- ${n.filename}: ${n.issues.join("; ")}.`);
+  return [
+    "<source_quality>",
+    "Some of the material below was not fully readable when it was uploaded:",
+    ...lines,
+    "If — and only if — your answer depends on a part that may be missing or misread, say so in one short line. Do not add a general disclaimer when the facts you used came through cleanly.",
+    "</source_quality>",
+  ].join("\n");
+}
+
+/** Sebtember's `completeFilesBlock` (`lib/chat/dynamic-sections.ts`), verbatim. */
+export function buildCompleteFilesBlock(wholeFiles: readonly string[]): string {
+  return wholeFiles.length
+    ? [
+        "<complete_files>",
+        `The ENTIRE stored content of these files is included above: ${wholeFiles.join(", ")}.`,
+        "For THESE files only: if something does not appear in <retrieved_data>, it is not in the document — state that absence plainly and with confidence rather than hedging. EXCEPTION: if the same file is listed in <source_quality>, its stored content is itself incomplete or possibly misread, and absence is NOT conclusive for it.",
+        "</complete_files>",
+      ].join("\n")
+    : "";
+}
+
 /**
  * Plugent's one addition: the source cards. Sebtember's §6 keeps file names and citation
  * marks out of the prose; the cards need to know which passages the answer drew on, so the
