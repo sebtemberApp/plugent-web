@@ -12,6 +12,7 @@ that uses it.
 | pause | `POST /api/products/knowledge/pause {uid, catalogue_id, paused}` → `{catalogue_id, paused}`; 404 when the user cannot open it (Step 1178) | `setCataloguePaused`, `app/actions/knowledge.ts` |
 | a catalogue's files | `POST /api/products/knowledge/sources {uid, catalogue_id, limit?, cursor?}`; a paused one is 404 (Steps 1174, 1178) | `getKnowledgeSources` |
 | search | `POST /api/products/knowledge/search {uid, source, query, request_id, limit?}`, never a paused catalogue → `{passages, retrievalStrength, charged, balanceAfter}`; sebtember charges its own search as line `{request_id}-search` (Step 1175) | `searchKnowledge`; the Ask agent (`lib/agents/ask.ts`) charges its model work as `{runId}-answer` |
+| pricing | `POST /api/products/pricing/{start,extract,match,get,discount-client,cancel,document,delete}` — the engine, price lists and discount tables stay in sebtember. `start` returns a signed PUT URL the browser uploads to; `extract` and `match` run a step and charge it as `{request_id}-extract` / `{request_id}-match-{n}` with `usage`; `get` is polled while a step runs. **REQUESTED, not on dev yet** — the full contract is `/mnt/project-files/plugent/pricing-api.md` | `lib/sebtember/pricing.ts`, `app/api/agents/pricing/route.ts`; each charge is a `kind: "charge"` turn on the run (`recordPricingCharge`) |
 
 Auth for the product API: a Google ID token for `PRODUCT_API_AUDIENCE`, from a service account listed in
 sebtember's `PRODUCT_API_CALLERS` as `plugent=<email>`. Unlisted → 401.
@@ -19,5 +20,5 @@ sebtember's `PRODUCT_API_CALLERS` as `plugent=<email>`. Unlisted → 401.
 ## Planned sebtember-side additions
 - ~~Milestone 2: catalogue consent~~ done in sebtember Step 1174 (PR #1094); replaced by connected-by-default + Pause in Step 1178.
 - ~~First agent: a passage search through the grant~~ done in sebtember Step 1175 (PR #1095).
-- **Pricing:** a structured price-list lookup (code/keyword), which semantic search does not cover.
+- **Pricing:** the `pricing/*` routes above (requested 2026-10-28). Plugent's screens are built and tested against a local mock of that contract.
 - **Attribution:** report content usage so Library creators are credited when a Plugent agent uses their content.

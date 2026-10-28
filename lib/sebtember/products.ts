@@ -101,7 +101,7 @@ export async function diagnoseProductApi(uid: string) {
   };
 }
 
-async function post<T>(path: string, body: unknown): Promise<T> {
+export async function post<T>(path: string, body: unknown): Promise<T> {
   const { origin, idToken } = await mintIdToken();
   const res = await fetch(new URL(path, origin), {
     method: "POST",
@@ -217,4 +217,30 @@ export function searchKnowledge(
     request_id: requestId,
     limit,
   });
+}
+
+/**
+ * A route that answers with a FILE (sebtember's `/api/products/pricing/document`): the bytes, their
+ * type and the download name sebtember chose. An error answer is JSON, as everywhere else.
+ */
+export async function postForFile(
+  path: string,
+  body: unknown,
+): Promise<{ bytes: ArrayBuffer; contentType: string; disposition: string | null }> {
+  const { origin, idToken } = await mintIdToken();
+  const res = await fetch(new URL(path, origin), {
+    method: "POST",
+    headers: { authorization: `Bearer ${idToken}`, "content-type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new SebtemberApiError(res.status, String(data.error ?? "unknown"));
+  }
+  return {
+    bytes: await res.arrayBuffer(),
+    contentType: res.headers.get("content-type") ?? "application/octet-stream",
+    disposition: res.headers.get("content-disposition"),
+  };
 }

@@ -3,7 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth/session";
-import { deleteRun, isRunId, MAX_TITLE_CHARS, renameRun } from "@/lib/runs";
+import { deleteRun, isRunId, MAX_TITLE_CHARS, readPricingRun, renameRun } from "@/lib/runs";
+import { cancelPricing, deletePricing } from "@/lib/sebtember/pricing";
+import { SebtemberApiError } from "@/lib/sebtember/products";
 
 /** Renames one of the signed-in user's runs. */
 export async function renameRunAction(
@@ -37,6 +39,20 @@ export async function deleteRunAction(
   const user = await getSessionUser();
   if (!user) return { ok: false, error: "unauthorized" };
   if (!isRunId(String(runId))) return { ok: false, error: "run_not_found" };
+  // A Pricing run's document lives in sebtember: delete it there first. A failure leaves an
+  // orphan only sebtember can see (and its own account deletion sweeps), never a broken row here.
+  const pricing = await readPricingRun(user.uid, runId);
+  if (pricing) {
+    // Sebtember refuses to delete a running step (409 busy): stop it first, then delete.
+    const remove = () => deletePricing(user.uid, pricing.pricingId);
+    await remove()
+      .catch(async (err) => {
+        if (!(err instanceof SebtemberApiError && err.code === "busy")) throw err;
+        await cancelPricing(user.uid, pricing.pricingId, true);
+        await remove();
+      })
+      .catch((err) => console.error(`[runs] sebtember pricing delete failed run=${runId}`, err));
+  }
   await deleteRun(user.uid, runId);
   revalidatePath("/", "layout");
   if (leaveTo && /^\/agents\/[a-z]+$/.test(leaveTo)) redirect(leaveTo);

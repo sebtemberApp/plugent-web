@@ -54,7 +54,7 @@ export const AGENTS: readonly AgentEntry[] = [
     name: "Pricing",
     description: "Upload a tender or bill of materials and price every line from your price lists.",
     href: "/agents/pricing",
-    available: false,
+    available: true,
     accent: "a-price",
   },
 ];

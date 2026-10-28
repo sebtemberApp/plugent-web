@@ -12,10 +12,16 @@ import "server-only";
 import { cert, getApp, getApps, initializeApp } from "firebase-admin/app";
 import { type Firestore, getFirestore } from "firebase-admin/firestore";
 
-let db: Firestore | null = null;
+/**
+ * ⚠️ ONE INSTANCE PER PROCESS, kept on `globalThis`: each route's bundle carries its own copy of
+ * this module, but `getFirestore()` hands every copy the SAME instance, and a second `settings()`
+ * on it throws ("Firestore has already been initialized") — the second route to touch Firestore
+ * in a warm process failed.
+ */
+const shared = globalThis as typeof globalThis & { __plugentDb?: Firestore };
 
 export function plugentDb(): Firestore {
-  if (db) return db;
+  if (shared.__plugentDb) return shared.__plugentDb;
   if (getApps().length === 0) {
     const emulator = process.env.FIRESTORE_EMULATOR_HOST;
     const key = process.env.PLUGENT_SERVICE_ACCOUNT_JSON?.trim();
@@ -27,7 +33,8 @@ export function plugentDb(): Firestore {
       initializeApp({ credential: cert(credentials), projectId: credentials.project_id });
     }
   }
-  db = getFirestore(getApp());
+  const db = getFirestore(getApp());
   db.settings({ ignoreUndefinedProperties: true });
+  shared.__plugentDb = db;
   return db;
 }

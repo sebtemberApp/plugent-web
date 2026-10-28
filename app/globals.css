@@ -125,6 +125,20 @@
   --radius-list: 20px;
   --radius-card: 24px;
   --font-sans: var(--font-manrope), system-ui, sans-serif;
+  /* Sebtember's names, for the Pricing view copied from it (components/pricing): each maps onto a
+     Plugent token, so the copy keeps its class strings and wears Plugent's colours. */
+  --color-foreground: var(--ink);
+  --color-muted-foreground: var(--ink2);
+  --color-muted: var(--fill1);
+  --color-background: var(--page);
+  --color-hairline: var(--hair);
+  --color-hairline-strong: var(--hair);
+  --color-destructive: var(--danger);
+  --color-info: var(--act);
+  --color-ring: var(--act);
+  --text-footnote: 0.8125rem;
+  --text-body: 0.875rem;
+  --text-subhead: 0.9375rem;
 }
 
 body {

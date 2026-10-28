@@ -24,6 +24,11 @@ built like PeakPick. It NEVER reads sebtember's Firestore or vectors directly. T
 - ⚠️ **AGENT PROMPTS ARE SEBTEMBER'S, COPIED VERBATIM** — Specification/Quotation (`lib/agents/spec-prompts.ts`) and
   Troubleshooting (`lib/agents/troubleshoot-prompts.ts`) carry sebtember's eval-chosen prompts; change them in sebtember first,
   then copy. Every agent reads knowledge only through `searchKnowledge` and charges through `charge`.
+- ⚠️ **PRICING RUNS ON SEBTEMBER'S ENGINE** (`/api/products/pricing/*`, `lib/sebtember/pricing.ts`); sebtember charges
+  each step itself and Plugent keeps each charge as a turn. Its VIEW CODE is sebtember's, copied verbatim
+  (`lib/agents/ipl/*`, `lib/agents/moi/{types,sniff}.ts`, `lib/pricing/{confirm,document,source-export}.ts`,
+  `components/pricing/*` except `PricingView`, `TemplateExportButton`): fix it in sebtember first, then copy.
+  ⚠️ A new `[[...run]]` param REMOUNTS the page — the URL moves only once the read is back.
 
 ## Environments
 `main` → Production → `sebtember-app` login, `https://sebtember.app`; `dev` → Preview → `sebtember-app-dev`,

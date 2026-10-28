@@ -396,3 +396,81 @@ export async function commitTsTurns(
   await batch.commit();
   return { runId: runRef.id, turnIds };
 }
+
+/* --------------------------------------------------------------------- pricing */
+
+/**
+ * A Pricing run lives in SEBTEMBER (`pricings/{id}`, the engine's own document); Plugent's run is
+ * its sidebar row: the title, the sebtember id, the wallet the balance call returned (never
+ * re-resolved), and one `charge` turn per step that sebtember charged, with its model usage.
+ */
+export interface PricingRunRef {
+  title: string;
+  pricingId: string;
+  source: string;
+}
+
+export async function createPricingRun(uid: string, ref: PricingRunRef): Promise<string> {
+  const doc = runs(uid).doc();
+  const now = FieldValue.serverTimestamp();
+  await doc.set({
+    agent: "pricing",
+    title: titleFrom(ref.title),
+    pricingId: ref.pricingId,
+    source: ref.source,
+    createdAt: now,
+    updatedAt: now,
+    tokensUsed: 0,
+    turnCount: 0,
+  });
+  return doc.id;
+}
+
+export async function readPricingRun(uid: string, runId: string): Promise<PricingRunRef | null> {
+  const doc = await runs(uid).doc(runId).get();
+  if (!doc.exists || doc.get("agent") !== "pricing") return null;
+  const pricingId = doc.get("pricingId");
+  if (typeof pricingId !== "string" || !pricingId) return null;
+  return {
+    title: String(doc.get("title") ?? "Untitled"),
+    pricingId,
+    source: String(doc.get("source") ?? "personal"),
+  };
+}
+
+/** One step sebtember charged: kept as a turn (with its usage) and added to the run's total. */
+export async function recordPricingCharge(
+  uid: string,
+  runId: string,
+  step: "extract" | "match",
+  lineId: string,
+  charge: { tokens: number; usage?: ChargeUsage[] },
+): Promise<void> {
+  const ref = runs(uid).doc(runId);
+  const now = FieldValue.serverTimestamp();
+  const batch = plugentDb().batch();
+  // The line id is the turn id, so a retried step that sebtember reports again is one turn.
+  batch.set(ref.collection("turns").doc(lineId), {
+    kind: "charge",
+    step,
+    by: "sebtember",
+    tokens: charge.tokens,
+    ...(charge.usage?.length ? { usage: charge.usage } : {}),
+    createdAt: now,
+  });
+  batch.update(ref, {
+    tokensUsed: FieldValue.increment(charge.tokens),
+    turnCount: FieldValue.increment(1),
+    updatedAt: now,
+  });
+  await batch.commit();
+}
+
+export async function touchRun(uid: string, runId: string, title?: string): Promise<void> {
+  await runs(uid)
+    .doc(runId)
+    .update({
+      updatedAt: FieldValue.serverTimestamp(),
+      ...(title ? { title: titleFrom(title) } : {}),
+    });
+}
