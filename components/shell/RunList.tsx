@@ -15,16 +15,25 @@ export function RunList({
   runs,
   hrefFor,
   onNavigate,
+  onRemoved,
 }: {
   runs: RunSummary[];
   hrefFor: (id: string) => string;
   onNavigate?: () => void;
+  /** A run was deleted (the layout's refresh drops the newest; older ones are the caller's). */
+  onRemoved?: (id: string) => void;
 }) {
   if (runs.length === 0) return null;
   return (
     <ul className="flex flex-col">
       {runs.map((run) => (
-        <RunRow key={run.id} run={run} href={hrefFor(run.id)} onNavigate={onNavigate} />
+        <RunRow
+          key={run.id}
+          run={run}
+          href={hrefFor(run.id)}
+          onNavigate={onNavigate}
+          onRemoved={onRemoved}
+        />
       ))}
     </ul>
   );
@@ -34,10 +43,12 @@ function RunRow({
   run,
   href,
   onNavigate,
+  onRemoved,
 }: {
   run: RunSummary;
   href: string;
   onNavigate?: () => void;
+  onRemoved?: (id: string) => void;
 }) {
   const path = usePathname();
   const active = path === href;
@@ -94,6 +105,7 @@ function RunRow({
       // The action refreshes the sidebar, or leaves the deleted run's page for a new one.
       const res = await deleteRunAction(run.id, active ? href.replace(/\/[^/]+$/, "") : null);
       if (!res.ok) setError("Couldn't delete. Try again.");
+      else onRemoved?.(run.id);
       setConfirming(false);
     });
   }
