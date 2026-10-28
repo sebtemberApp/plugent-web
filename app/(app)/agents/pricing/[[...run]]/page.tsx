@@ -31,6 +31,7 @@ export default async function PricingPage({ params }: { params: Promise<{ run?: 
   return (
     <PricingView
       runId={runId}
+      runTitle={stored.title}
       enabled={enabled}
       initial={pricingInitial(data as unknown as PricingRunData)}
     />

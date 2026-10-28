@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { formatTokens, useBalance } from "@/components/shell/BalanceContext";
+import { RunMenu } from "@/components/shell/RunMenu";
 import { AgentIcon } from "@/components/ui/AgentIcon";
 import { agentById } from "@/lib/agents/registry";
 import {
@@ -197,7 +198,7 @@ export function TroubleshootAgent({
     <main className="flex min-h-[calc(100dvh-56px)] flex-1 flex-col min-[900px]:min-h-dvh">
       <header className="flex items-center gap-3 border-hair border-b-[0.5px] px-4 py-3.5 min-[600px]:px-8">
         <AgentIcon agent={agent} />
-        <div className="flex min-w-0 flex-col">
+        <div className="flex min-w-0 flex-1 flex-col">
           <h1 className="truncate text-[17px] font-bold">{title ?? "New troubleshooting"}</h1>
           <p className="text-[13px] text-ink2">
             Troubleshooting
@@ -205,6 +206,14 @@ export function TroubleshootAgent({
             {used > 0 && ` · ${formatTokens(used)} tokens`}
           </p>
         </div>
+        {runId && (
+          <RunMenu
+            runId={runId}
+            title={title ?? "New troubleshooting"}
+            leaveTo={agent.href}
+            onRenamed={setTitle}
+          />
+        )}
       </header>
 
       <div className="mx-auto flex w-full max-w-[820px] flex-1 flex-col gap-4 px-4 py-7 min-[600px]:px-8">

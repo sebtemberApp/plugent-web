@@ -70,6 +70,7 @@ import {
 import { TemplateExportButton } from "@/components/pricing/TemplateExportButton";
 import { useDiscountTables } from "@/components/pricing/use-discount-tables";
 import { useBalance } from "@/components/shell/BalanceContext";
+import { RunMenu } from "@/components/shell/RunMenu";
 import { AgentIcon } from "@/components/ui/AgentIcon";
 import { type DiscountClient, discountGroupsOf } from "@/lib/agents/ipl/discount";
 import type { IplExportDiscount } from "@/lib/agents/ipl/export";
@@ -114,12 +115,15 @@ const MATCH_STALE_MS = 330_000;
 
 export function PricingView({
   runId,
+  runTitle = null,
   enabled,
   initial,
   strings = null,
 }: {
   /** Plugent's run id; null on a new pricing, until `start` makes the run. */
   runId: string | null;
+  /** The run's name in Plugent (the sidebar's), which a rename changes; sebtember's title otherwise. */
+  runTitle?: string | null;
   /** Step 965 — a DISABLED function refuses the run but never confiscates. The
    *  page still renders; only the upload control is withheld, because a
    *  launcher must not offer what the server will refuse. */
@@ -569,7 +573,9 @@ export function PricingView({
   }
 
   const agent = agentById("pricing");
-  const title = state.title.length > 0 ? state.title : PRICING_NEW_TITLE;
+  // A rename from the header's menu shows at once; the run's own title otherwise.
+  const [renamed, setRenamed] = useState<string | null>(runTitle);
+  const title = renamed ?? (state.title.length > 0 ? state.title : PRICING_NEW_TITLE);
   const isBlank = state.status === "draft";
 
   /**
@@ -1080,6 +1086,9 @@ export function PricingView({
             className="max-[599px]:w-full"
           />
         )}
+        {docId && !isBlank ? (
+          <RunMenu runId={docId} title={title} leaveTo={agent.href} onRenamed={setRenamed} />
+        ) : null}
       </header>
 
       {/* BLANK — nothing uploaded, so the one control IS the page and sits in

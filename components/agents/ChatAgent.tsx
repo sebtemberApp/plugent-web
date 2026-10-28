@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { sendFeedbackAction } from "@/app/actions/feedback";
 import { formatTokens, useBalance } from "@/components/shell/BalanceContext";
+import { RunMenu } from "@/components/shell/RunMenu";
 import { AgentIcon } from "@/components/ui/AgentIcon";
 import type { AskMode } from "@/lib/agents/ask";
 import { agentById } from "@/lib/agents/registry";
@@ -263,7 +264,7 @@ export function ChatAgent({
     <main className="flex min-h-[calc(100dvh-56px)] flex-1 flex-col min-[900px]:min-h-dvh">
       <header className="flex items-center gap-3 border-hair border-b-[0.5px] px-4 py-3.5 min-[600px]:px-8">
         <AgentIcon agent={agent} />
-        <div className="flex min-w-0 flex-col">
+        <div className="flex min-w-0 flex-1 flex-col">
           <h1 className="truncate text-[17px] font-bold">
             {title ?? turns[0]?.question ?? ui.newTitle}
           </h1>
@@ -273,6 +274,14 @@ export function ChatAgent({
               ` · ${asked} ${ui.unit[asked === 1 ? 0 : 1]} · ${formatTokens(used)} tokens`}
           </p>
         </div>
+        {runId && (
+          <RunMenu
+            runId={runId}
+            title={title ?? turns[0]?.question ?? ui.newTitle}
+            leaveTo={agent.href}
+            onRenamed={setTitle}
+          />
+        )}
       </header>
 
       <div className="@container relative flex flex-1 flex-col">
