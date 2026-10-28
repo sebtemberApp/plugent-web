@@ -6,6 +6,7 @@ import { getSessionUser } from "@/lib/auth/session";
 import { deleteRun, isRunId, MAX_TITLE_CHARS, readPricingRun, renameRun } from "@/lib/runs";
 import { cancelPricing, deletePricing } from "@/lib/sebtember/pricing";
 import { SebtemberApiError } from "@/lib/sebtember/products";
+import { stopRunShares } from "@/lib/shares";
 
 /** Renames one of the signed-in user's runs. */
 export async function renameRunAction(
@@ -61,6 +62,8 @@ export async function deleteRunAction(
       );
     if (!removed) return { ok: false, error: "delete_failed" };
   }
+  // Its shared answers go first: a public page must not outlive the run it came from.
+  await stopRunShares(user.uid, runId);
   await deleteRun(user.uid, runId);
   revalidatePath("/", "layout");
   if (leaveTo && /^\/agents\/[a-z]+$/.test(leaveTo)) redirect(leaveTo);

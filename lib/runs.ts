@@ -11,11 +11,11 @@ import type { AskResult, AskSource } from "@/lib/agents/ask";
 import type { AgentId } from "@/lib/agents/registry";
 import type { StepData, StepOutcomeKind } from "@/lib/agents/troubleshoot-prompts";
 import { plugentDb } from "@/lib/firebase/admin";
+import { SIDEBAR_RUNS } from "@/lib/run-pages";
 import type { ChargeUsage } from "@/lib/sebtember/products";
 import type { TurnCharge } from "@/lib/usage";
 
 export const MAX_TITLE_CHARS = 80;
-const SIDEBAR_RUNS = 30;
 
 export interface RunSummary {
   id: string;
