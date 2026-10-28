@@ -52,7 +52,13 @@ type Turn = {
   state:
     | { kind: "pending"; deep: boolean }
     /** The answer as it streams in (Chat); `stopping` once Stop was pressed. */
-    | { kind: "streaming"; text: string; stopping: boolean }
+    | {
+        kind: "streaming";
+        text: string;
+        stopping: boolean;
+        /** The connection dropped: the answer is still written on the server, and found there. */
+        dropped?: boolean;
+      }
     | {
         kind: "answer";
         answer: string;
@@ -157,9 +163,60 @@ function fromStored(turns: StoredTurn[]): Turn[] {
             tokens: t.tokens,
             charged: t.charged,
             ...(t.clarify ? { clarify: t.clarify } : {}),
+            ...(t.stopped ? { stopped: true } : {}),
           }
         : { kind: "not_covered", tokens: t.tokens },
   }));
+}
+
+/** A saved turn as the stream's `done` event carries it, for an answer found after a drop. */
+function doneFromStored(t: StoredTurn, runId: string): Record<string, unknown> {
+  return {
+    type: "done",
+    runId,
+    turnId: t.id,
+    ...(t.kind === "answer"
+      ? {
+          kind: "answer",
+          answer: t.answer,
+          sources: t.sources,
+          tokens: t.tokens,
+          charged: t.charged,
+          ...(t.clarify ? { clarify: t.clarify } : {}),
+          ...(t.stopped ? { stopped: true } : {}),
+        }
+      : { kind: "not_covered", tokens: t.tokens }),
+  };
+}
+
+/** How long a page whose stream dropped looks for the answer: past the route's 300 s. */
+const FIND_ANSWER_MS = 330_000;
+const FIND_ANSWER_EVERY_MS = 2500;
+
+/**
+ * The answer of a stream that dropped (audit N1): the server kept writing it, and saves it under
+ * the ids the stream started with. Asked every few seconds until it is saved or failed; `alive`
+ * false stops the search (the user left the run).
+ */
+async function findAnswer(
+  target: { runId: string; turnId: string },
+  alive: () => boolean,
+): Promise<Record<string, unknown>> {
+  const until = Date.now() + FIND_ANSWER_MS;
+  while (Date.now() < until && alive()) {
+    await new Promise((r) => setTimeout(r, FIND_ANSWER_EVERY_MS));
+    const res = await fetch("/api/agents/ask/turn", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(target),
+    }).catch(() => null);
+    const data = res?.ok ? await res.json().catch(() => null) : null;
+    if (!data) continue; // still offline: try again
+    if (data.status === "done") return doneFromStored(data.turn, target.runId);
+    if (data.status === "failed") return { type: "error", error: data.error };
+    if (data.status === "missing") break;
+  }
+  return { type: "error", error: "unreachable" };
 }
 
 /**
@@ -176,6 +233,7 @@ export function ChatAgent({
   off,
   defaultMode,
   agent: agentId = "chat",
+  writing = false,
 }: {
   agent?: ThreadAgent;
   runId: string | null;
@@ -185,10 +243,12 @@ export function ChatAgent({
   off: boolean;
   /** Chat settings' mode for a new chat. */
   defaultMode: AskMode;
+  /** The run is still answering a request (a reload mid-answer, or a dropped connection). */
+  writing?: boolean;
 }) {
   const ui = UI[agentId];
   const agent = agentById(agentId);
-  const { spent } = useBalance();
+  const { spent, refresh: refreshBalance } = useBalance();
   const router = useRouter();
   const [runId, setRunId] = useState(initialRunId);
   const [title, setTitle] = useState(initialTitle);
@@ -222,6 +282,25 @@ export function ChatAgent({
     setTitle(initialTitle);
     setTurns(fromStored(initialTurns));
   }, [initialRunId, initialTitle]);
+
+  // Opened while the run is still answering (audit N1): the page looks again every few seconds,
+  // and shows the answer once it is saved.
+  const wasWriting = useRef(writing);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the stored turns arrive with the props
+  useEffect(() => {
+    if (wasWriting.current && !writing && initialRunId === runId) {
+      setTurns(fromStored(initialTurns));
+      refreshBalance();
+    }
+    wasWriting.current = writing;
+    if (!writing) return;
+    const started = Date.now();
+    const id = setInterval(() => {
+      if (Date.now() - started > FIND_ANSWER_MS) clearInterval(id);
+      else router.refresh();
+    }, FIND_ANSWER_EVERY_MS);
+    return () => clearInterval(id);
+  }, [writing, initialTurns]);
   const lastKind = turns.at(-1)?.state.kind;
   const busy = lastKind === "pending" || lastKind === "streaming";
   // The streaming answer's Stop id (`/api/agents/ask/stop`); null when nothing can be stopped.
@@ -255,6 +334,8 @@ export function ChatAgent({
     if (picked === undefined) setQuestion("");
     setStopId(null);
     const view = shown.current;
+    // Where the server will save this answer (the stream's `start` event names it).
+    let target: { runId: string; turnId: string } | null = null;
     const settle = (state: Turn["state"], storedId?: unknown) =>
       setTurns((t) =>
         t.map((turn) =>
@@ -270,9 +351,14 @@ export function ChatAgent({
         body: JSON.stringify(ui.body(q, runId, mode)),
       });
       const streamed = res.ok && (res.headers.get("content-type") ?? "").includes("ndjson");
-      const data = streamed
+      let data = streamed
         ? await readAnswerStream(res, {
-            onStart: (id) => shown.current === view && setStopId(id),
+            onStart: (event) => {
+              if (typeof event.runId === "string" && typeof event.turnId === "string") {
+                target = { runId: event.runId, turnId: event.turnId };
+              }
+              if (shown.current === view) setStopId(String(event.stopId));
+            },
             onText: (text) =>
               shown.current === view &&
               setTurns((t) =>
@@ -291,6 +377,30 @@ export function ChatAgent({
               ),
           }).finally(() => shown.current === view && setStopId(null))
         : await res.json().catch(() => ({ error: `http_${res.status}` }));
+      // The connection dropped mid-answer (a phone locking, a network blip): the server is still
+      // writing it, so the page waits for the saved turn instead of offering a second, paid try.
+      const found: { runId: string; turnId: string } | null = target;
+      if (streamed && data.type === "dropped" && found) {
+        if (shown.current === view) {
+          setTurns((t) =>
+            t.map((turn) =>
+              turn.id === id
+                ? {
+                    ...turn,
+                    state: {
+                      kind: "streaming",
+                      text: turn.state.kind === "streaming" ? turn.state.text : "",
+                      stopping: false,
+                      dropped: true,
+                    },
+                  }
+                : turn,
+            ),
+          );
+        }
+        data = await findAnswer(found, () => shown.current === view);
+        refreshBalance();
+      }
       const ok = streamed ? data.type === "done" : res.ok;
       if (typeof data.balanceAfter === "number") spent(data.balanceAfter);
       // The user opened another run, or left, while this one worked: it is saved, so the
@@ -299,7 +409,8 @@ export function ChatAgent({
         if (ok) router.refresh();
         return;
       }
-      if (!ok) return fail(String(data.error ?? res.status));
+      if (!ok)
+        return fail(data.type === "dropped" ? "unreachable" : String(data.error ?? res.status));
       if (typeof data.runId === "string") {
         if (data.runId !== runId) {
           setRunId(data.runId);
@@ -418,6 +529,11 @@ export function ChatAgent({
               sourceCards={ui.sourceCards}
             />
           ))}
+          {writing && !busy && (
+            <p role="status" className="text-[15px] text-ink2">
+              The answer to the last question is still being written and will appear here.
+            </p>
+          )}
         </div>
       </div>
       <div className="sticky bottom-0 mx-auto w-full max-w-[820px] bg-gradient-to-t from-page from-70% to-transparent px-4 pt-3 pb-4 min-[600px]:px-8 min-[600px]:pb-6">
@@ -556,7 +672,11 @@ function TurnView({
           )}
           <span className="flex items-center gap-2 text-[13px] text-ink2">
             <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-act" />
-            {s.stopping ? "Stopping…" : "Writing…"}
+            {s.dropped
+              ? "The connection dropped. The answer is still being written and will appear here."
+              : s.stopping
+                ? "Stopping…"
+                : "Writing…"}
           </span>
         </article>
       )}
@@ -610,8 +730,8 @@ function TurnView({
           {s.stopped && (
             <p className="text-[13px] text-ink2">
               {s.answer
-                ? "Stopped. Only the part written was charged."
-                : "Stopped before the answer began. Only the search was charged."}
+                ? "Stopped. Only the work done until then was charged."
+                : "Stopped before the answer began."}
             </p>
           )}
           {sourceCards && s.sources.length > 0 && (
@@ -632,7 +752,7 @@ function TurnView({
             turnId={storedId}
             question={turn.question}
             answer={s.answer}
-            copy
+            copy={s.answer.trim().length > 0}
           />
         </article>
       )}
@@ -661,14 +781,15 @@ function streamingText(text: string): string {
  */
 async function readAnswerStream(
   res: Response,
-  on: { onStart: (stopId: string) => void; onText: (text: string) => void },
+  on: { onStart: (event: Record<string, unknown>) => void; onText: (text: string) => void },
 ): Promise<Record<string, unknown> & { type?: string; error?: unknown }> {
   const reader = res.body?.getReader();
   if (!reader) return { type: "error", error: "unreachable" };
   const decoder = new TextDecoder();
   let buffer = "";
   let text = "";
-  let last: Record<string, unknown> = { type: "error", error: "unreachable" };
+  // No `done` or `error` before the stream ended: the connection dropped (audit N1).
+  let last: Record<string, unknown> = { type: "dropped" };
   const take = (line: string) => {
     if (!line.trim()) return;
     let event: Record<string, unknown>;
@@ -677,14 +798,16 @@ async function readAnswerStream(
     } catch {
       return;
     }
-    if (event.type === "start" && typeof event.stopId === "string") on.onStart(event.stopId);
+    if (event.type === "start" && typeof event.stopId === "string") on.onStart(event);
     else if (event.type === "delta" && typeof event.text === "string") {
       text += event.text;
       on.onText(text);
     } else if (event.type === "done" || event.type === "error") last = event;
   };
   for (;;) {
-    const { done, value } = await reader.read();
+    const chunk = await reader.read().catch(() => null);
+    if (!chunk) return { type: "dropped" };
+    const { done, value } = chunk;
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split("\n");

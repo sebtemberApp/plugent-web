@@ -13,6 +13,7 @@ import type { StepData, StepOutcomeKind } from "@/lib/agents/troubleshoot-prompt
 import { plugentDb } from "@/lib/firebase/admin";
 import { SIDEBAR_RUNS } from "@/lib/run-pages";
 import type { ChargeUsage } from "@/lib/sebtember/products";
+import { linkUnpaid } from "@/lib/unpaid";
 import type { TurnCharge } from "@/lib/usage";
 
 export const MAX_TITLE_CHARS = 80;
@@ -40,6 +41,8 @@ export type StoredTurn = {
       charged: boolean;
       /** Chat asked a clarifying question (`answer` is the question): its chips. */
       clarify?: { question: string; options: string[] };
+      /** The user pressed Stop: `answer` is only the part written (audit N2). */
+      stopped?: boolean;
     }
   | { kind: "not_covered"; tokens: number }
 );
@@ -84,7 +87,7 @@ export async function listRuns(uid: string): Promise<RunSummary[]> {
 export async function readRun(
   uid: string,
   runId: string,
-): Promise<{ run: RunSummary; turns: StoredTurn[] } | null> {
+): Promise<{ run: RunSummary; turns: StoredTurn[]; writing: boolean } | null> {
   const ref = runs(uid).doc(runId);
   const [doc, turns] = await Promise.all([
     ref.get(),
@@ -101,29 +104,47 @@ export async function readRun(
       tokensUsed: Number(data.tokensUsed ?? 0),
       turnCount: Number(data.turnCount ?? 0),
     },
-    turns: turns.docs.map((t) => {
-      const d = t.data();
-      const base = { id: t.id, question: String(d.question ?? ""), createdAt: millis(d.createdAt) };
-      return d.kind === "answer"
-        ? {
-            ...base,
-            kind: "answer" as const,
-            answer: String(d.answer ?? ""),
-            sources: Array.isArray(d.sources) ? d.sources : [],
-            tokens: Number(d.tokens ?? 0),
-            charged: d.charged !== false,
-            ...(d.clarify && Array.isArray(d.clarify.options)
-              ? {
-                  clarify: {
-                    question: String(d.clarify.question ?? ""),
-                    options: d.clarify.options.map(String),
-                  },
-                }
-              : {}),
-          }
-        : { ...base, kind: "not_covered" as const, tokens: Number(d.tokens ?? 0) };
-    }),
+    // A request holds the run (`claimRun`): an answer is still being written, perhaps for a
+    // reader whose connection dropped (audit N1).
+    writing: Boolean(data.running) && Date.now() - millis(data.running) < RUN_STALE_MS,
+    turns: turns.docs.map((t) => storedTurn(t.id, t.data())),
   };
+}
+
+/** One turn document as the page shows it. */
+function storedTurn(id: string, d: FirebaseFirestore.DocumentData): StoredTurn {
+  const base = { id, question: String(d.question ?? ""), createdAt: millis(d.createdAt) };
+  return d.kind === "answer"
+    ? {
+        ...base,
+        kind: "answer" as const,
+        answer: String(d.answer ?? ""),
+        sources: Array.isArray(d.sources) ? d.sources : [],
+        tokens: Number(d.tokens ?? 0),
+        charged: d.charged !== false,
+        ...(d.stopped === true ? { stopped: true } : {}),
+        ...(d.clarify && Array.isArray(d.clarify.options)
+          ? {
+              clarify: {
+                question: String(d.clarify.question ?? ""),
+                options: d.clarify.options.map(String),
+              },
+            }
+          : {}),
+      }
+    : { ...base, kind: "not_covered" as const, tokens: Number(d.tokens ?? 0) };
+}
+
+/** One saved turn of a run, or null while it is not saved (audit N1: a dropped reader polls it). */
+export async function readTurn(
+  uid: string,
+  runId: string,
+  turnId: string,
+): Promise<{ turn: StoredTurn; title: string } | null> {
+  const ref = runs(uid).doc(runId);
+  const [run, turn] = await Promise.all([ref.get(), ref.collection("turns").doc(turnId).get()]);
+  if (!run.exists || !turn.exists) return null;
+  return { turn: storedTurn(turn.id, turn.data() ?? {}), title: String(run.get("title") ?? "") };
 }
 
 /**
@@ -135,16 +156,20 @@ export function historyFrom(
   turns: StoredTurn[],
   limit: number,
 ): { role: "user" | "assistant"; content: string }[] {
-  return turns
-    .flatMap((t) => [
-      { role: "user" as const, content: t.question },
-      {
-        role: "assistant" as const,
-        content:
-          t.kind === "answer" ? t.answer : "Your catalogues don't seem to cover this question.",
-      },
-    ])
-    .slice(-limit);
+  return (
+    turns
+      // An answer stopped before any text says nothing the model should continue (audit N2).
+      .filter((t) => t.kind !== "answer" || t.answer.trim().length > 0)
+      .flatMap((t) => [
+        { role: "user" as const, content: t.question },
+        {
+          role: "assistant" as const,
+          content:
+            t.kind === "answer" ? t.answer : "Your catalogues don't seem to cover this question.",
+        },
+      ])
+      .slice(-limit)
+  );
 }
 
 export async function runExists(uid: string, runId: string): Promise<boolean> {
@@ -186,9 +211,20 @@ export async function releaseRun(uid: string, runId: string): Promise<void> {
 }
 
 /**
+ * The ids a turn will be saved under, chosen before the work starts, so a reader whose
+ * connection drops can still find the answer when it lands (audit N1). `runId` null = a new run.
+ */
+export function newTurnIds(uid: string, runId: string | null): { runId: string; turnId: string } {
+  const runRef = runId ? runs(uid).doc(runId) : runs(uid).doc();
+  return { runId: runRef.id, turnId: runRef.collection("turns").doc().id };
+}
+
+/**
  * Saves one answered question: into `runId`, or into a new run titled from the question
  * when `runId` is null. Returns the run id and the turn's. The run and its turn are written
- * together, and the run's claim (`claimRun`) is released with them.
+ * together, and the run's claim (`claimRun`) is released with them. `ids` (from `newTurnIds`)
+ * names the new run and the turn; a charge kept unpaid is linked to the turn, so paying it
+ * later updates it (audit N7).
  */
 export async function saveTurn(
   uid: string,
@@ -196,10 +232,13 @@ export async function saveTurn(
   agent: AgentId,
   question: string,
   result: AskResult,
+  ids?: { runId: string; turnId: string },
 ): Promise<{ runId: string; turnId: string }> {
   const db = plugentDb();
-  const runRef = runId ? runs(uid).doc(runId) : runs(uid).doc();
-  const turnRef = runRef.collection("turns").doc();
+  const runRef = runs(uid).doc(runId ?? ids?.runId ?? runs(uid).doc().id);
+  const turnRef = ids
+    ? runRef.collection("turns").doc(ids.turnId)
+    : runRef.collection("turns").doc();
   const now = FieldValue.serverTimestamp();
   const batch = db.batch();
   if (runId) {
@@ -233,6 +272,7 @@ export async function saveTurn(
           ...(result.usage ? { usage: result.usage } : {}),
           ...(result.charges?.length ? { charges: result.charges } : {}),
           ...(result.clarify ? { clarify: result.clarify } : {}),
+          ...(result.stopped ? { stopped: true } : {}),
           createdAt: now,
         }
       : {
@@ -243,6 +283,7 @@ export async function saveTurn(
           createdAt: now,
         },
   );
+  linkUnpaid(batch, result.unpaid, turnRef);
   await batch.commit();
   return { runId: runRef.id, turnId: turnRef.id };
 }
@@ -478,6 +519,8 @@ export async function commitTsTurns(
     usage?: ChargeUsage[];
     /** What the request cost, line by line: kept on its last turn (the Usage page). */
     charges?: TurnCharge[];
+    /** Lines kept unpaid: linked to its last turn, which a later payment updates. */
+    unpaid?: TurnCharge[];
   },
 ): Promise<{ runId: string; turnIds: string[] }> {
   const db = plugentDb();
@@ -511,6 +554,7 @@ export async function commitTsTurns(
   const turnIds = args.turns.map((turn, i) => {
     const ref = runRef.collection("turns").doc();
     const last = i === args.turns.length - 1;
+    if (last) linkUnpaid(batch, args.unpaid, ref);
     batch.set(ref, {
       ...turn,
       seq: args.nextSeq + i,

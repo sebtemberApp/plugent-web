@@ -26,6 +26,12 @@ export async function ThreadPage({ agent, run }: { agent: ThreadAgent; run?: str
   const stored = await readRun(user.uid, runId);
   if (!stored || stored.run.agent !== agent) notFound();
   return (
-    <ChatAgent runId={runId} title={stored.run.title} initialTurns={stored.turns} {...settings} />
+    <ChatAgent
+      runId={runId}
+      title={stored.run.title}
+      initialTurns={stored.turns}
+      writing={stored.writing}
+      {...settings}
+    />
   );
 }

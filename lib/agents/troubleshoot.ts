@@ -61,7 +61,14 @@ import {
   searchKnowledge,
 } from "@/lib/sebtember/products";
 import { chargeOrKeep } from "@/lib/unpaid";
-import { agentCharge, logCharge, searchCharge, type TurnCharge, usageOf } from "@/lib/usage";
+import {
+  agentCharge,
+  logCharge,
+  searchCharge,
+  type TurnCharge,
+  unpaidCharge,
+  usageOf,
+} from "@/lib/usage";
 
 export const TS_MODEL = process.env.PLUGENT_TROUBLESHOOTING_MODEL?.trim() || "openai/gpt-5.4-mini";
 export const TS_LIMITS = {
@@ -402,6 +409,7 @@ async function respond(
       ...searchCharges,
       ...agentCharge(`${requestId}-turn`, "Step", turnTokens, usage, charged),
     ],
+    unpaid: unpaidCharge(`${requestId}-turn`, "Step", turnTokens, usage, charged),
   });
   return {
     runId: saved.runId,

@@ -99,3 +99,15 @@ export function agentCharge(
 ): TurnCharge[] {
   return tokens > 0 && charged ? [{ line, by: "plugent", what, tokens, usage }] : [];
 }
+
+/** The same line when its charge failed and it was kept for a retry (`lib/unpaid.ts`): saved
+ *  with the turn, so paying it later adds it to the turn's `charges`. None when it was paid. */
+export function unpaidCharge(
+  line: string,
+  what: string,
+  tokens: number,
+  usage: ChargeUsage[],
+  charged: boolean,
+): TurnCharge[] {
+  return tokens > 0 && !charged ? [{ line, by: "plugent", what, tokens, usage }] : [];
+}

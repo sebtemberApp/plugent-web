@@ -94,6 +94,11 @@ function Answer({ share }: { share: SharedAnswer }) {
   return (
     <article className="flex flex-col gap-4 rounded-card bg-card px-6 py-5 shadow-card">
       <AnswerText text={share.answer} />
+      {share.stopped && (
+        <p className="text-[13px] text-ink2">
+          This answer was stopped before it finished, so it may be incomplete.
+        </p>
+      )}
       {share.sources.length > 0 && (
         <div className="flex flex-col gap-2">
           <span className="text-[13px] font-semibold text-ink2">Sources</span>

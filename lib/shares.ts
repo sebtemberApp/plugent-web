@@ -45,6 +45,8 @@ export interface SharedAnswer {
   question: string;
   answer: string;
   sources: SharedSource[];
+  /** The author pressed Stop: the answer is only the part written (audit N2). */
+  stopped: boolean;
   /** ms since epoch */
   createdAt: number;
 }
@@ -56,7 +58,7 @@ export function isShareToken(value: string): boolean {
 
 /** Sebtember's Step-380 rule: only a substantive, cited answer is offered to search engines. */
 export function isIndexable(share: SharedAnswer): boolean {
-  return share.answer.length >= 200 && share.sources.length >= 1;
+  return !share.stopped && share.answer.length >= 200 && share.sources.length >= 1;
 }
 
 function pointers(uid: string) {
@@ -67,7 +69,10 @@ function pointers(uid: string) {
 async function findTurn(uid: string, runId: string, turnId: string) {
   const run = await readRun(uid, runId);
   if (!run || !SHAREABLE.includes(run.run.agent)) return null;
-  const turn = run.turns.find((t) => t.id === turnId && t.kind === "answer" && !t.clarify);
+  // An answer stopped before any text has nothing to share (audit N2).
+  const turn = run.turns.find(
+    (t) => t.id === turnId && t.kind === "answer" && !t.clarify && t.answer.trim().length > 0,
+  );
   return turn?.kind === "answer" ? { agent: run.run.agent, turn } : null;
 }
 
@@ -123,6 +128,7 @@ export async function shareAnswer(
       question: turn.question,
       answer: turn.answer,
       sources,
+      ...(turn.stopped ? { stopped: true } : {}),
       created_at: FieldValue.serverTimestamp(),
     });
     tx.set(pointer, { token, run_id: runId, created_at: FieldValue.serverTimestamp() });
@@ -172,6 +178,7 @@ export async function readShare(token: string): Promise<SharedAnswer | null> {
     question: String(d.question ?? ""),
     answer: String(d.answer ?? ""),
     sources: Array.isArray(d.sources) ? d.sources : [],
+    stopped: d.stopped === true,
     createdAt: created instanceof Timestamp ? created.toMillis() : 0,
   };
 }

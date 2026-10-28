@@ -51,7 +51,14 @@ import {
   searchKnowledge,
 } from "@/lib/sebtember/products";
 import { chargeOrKeep } from "@/lib/unpaid";
-import { agentCharge, logCharge, searchCharge, type TurnCharge, usageOf } from "@/lib/usage";
+import {
+  agentCharge,
+  logCharge,
+  searchCharge,
+  type TurnCharge,
+  unpaidCharge,
+  usageOf,
+} from "@/lib/usage";
 
 /** A Vercel AI Gateway model id; sebtember's RFQ and gateway chat answer run on it. */
 export const ASK_MODEL = process.env.PLUGENT_ASK_MODEL?.trim() || "openai/gpt-5.4-mini";
@@ -266,8 +273,16 @@ export type AskResult =
       clarify?: { question: string; options: string[] };
       /** The user pressed Stop: `answer` is what was written until then. */
       stopped?: boolean;
+      /** Lines whose charge failed and were kept for a retry: linked to the saved turn. */
+      unpaid?: TurnCharge[];
     }
-  | { kind: "not_covered"; tokens: number; balanceAfter: number | null; charges?: TurnCharge[] };
+  | {
+      kind: "not_covered";
+      tokens: number;
+      balanceAfter: number | null;
+      charges?: TurnCharge[];
+      unpaid?: TurnCharge[];
+    };
 
 /** One earlier message of the same chat, oldest first (the route reads them from the run). */
 export interface HistoryMessage {
@@ -422,15 +437,20 @@ export async function runAsk(
   // ⚠️ A STOPPED ANSWER IS CHARGED BY AN ESTIMATE: the provider reports no usage for a call cut
   // short, so its prompt and its written text are counted at CHARS_PER_TOKEN (its reasoning is
   // not counted at all). Never free: stopping just before the end must not make an answer free.
+  // The fixed system instruction is the prefix a provider caches, so it is counted as cached, as
+  // a finished answer's usage would report it; a stopped answer then never costs more than the
+  // same answer finished (audit N3).
+  const cachedPrefix = Math.ceil(SYSTEM_INSTRUCTION_GPT.length / CHARS_PER_TOKEN);
   const usageNow: AskUsage = totalUsage ?? {
-    inputTokens: Math.ceil(
-      (SYSTEM_INSTRUCTION_GPT.length +
+    inputTokens:
+      cachedPrefix +
+      Math.ceil(
         messages.reduce(
           (sum, m) => sum + (typeof m.content === "string" ? m.content.length : 0),
           0,
-        )) /
-        CHARS_PER_TOKEN,
-    ),
+        ) / CHARS_PER_TOKEN,
+      ),
+    inputTokenDetails: { cacheReadTokens: cachedPrefix },
     outputTokens: Math.ceil(text.length / CHARS_PER_TOKEN),
   };
   const answerTokens = billedAnswerTokens(usageNow);
@@ -467,6 +487,7 @@ export async function runAsk(
         ...searchCharge(runId, search),
         ...agentCharge(`${runId}-answer`, "Question back", answerTokens, usage, charged),
       ],
+      unpaid: unpaidCharge(`${runId}-answer`, "Question back", answerTokens, usage, charged),
     };
   }
 
@@ -494,5 +515,12 @@ export async function runAsk(
         charged,
       ),
     ],
+    unpaid: unpaidCharge(
+      `${runId}-answer`,
+      stopped ? "Answer (stopped)" : "Answer",
+      answerTokens,
+      usage,
+      charged,
+    ),
   };
 }

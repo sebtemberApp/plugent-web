@@ -42,7 +42,7 @@ import {
   searchKnowledge,
 } from "@/lib/sebtember/products";
 import { chargeOrKeep } from "@/lib/unpaid";
-import { agentCharge, logCharge, searchCharge, usageOf } from "@/lib/usage";
+import { agentCharge, logCharge, searchCharge, unpaidCharge, usageOf } from "@/lib/usage";
 
 export type SpecDocAgent = "specification" | "quotation";
 
@@ -270,5 +270,6 @@ export async function runSpecDoc(
       ...searchCharge(runId, search),
       ...agentCharge(`${runId}-draft`, "Draft", draftTokens, usage, charged),
     ],
+    unpaid: unpaidCharge(`${runId}-draft`, "Draft", draftTokens, usage, charged),
   };
 }

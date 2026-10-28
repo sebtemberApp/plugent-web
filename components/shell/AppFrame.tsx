@@ -59,7 +59,7 @@ export function AppFrame({
     <BalanceProvider sebtemberUrl={sebtemberUrl}>
       <div className="flex min-h-dvh">
         {hidden ? (
-          <aside className="sticky top-0 z-40 hidden h-dvh w-14 shrink-0 border-hair border-r-[0.5px] min-[900px]:block">
+          <aside className="sticky top-0 z-40 hidden h-dvh w-14 shrink-0 overflow-y-clip border-hair border-r-[0.5px] min-[900px]:block">
             <SidebarRail
               email={email}
               sebtemberUrl={sebtemberUrl}
@@ -68,7 +68,7 @@ export function AppFrame({
             />
           </aside>
         ) : (
-          <aside className="sticky top-0 hidden h-dvh w-[264px] shrink-0 border-hair border-r-[0.5px] min-[900px]:block">
+          <aside className="sticky top-0 hidden h-dvh w-[264px] shrink-0 overflow-y-clip border-hair border-r-[0.5px] min-[900px]:block">
             <Sidebar
               email={email}
               sebtemberUrl={sebtemberUrl}

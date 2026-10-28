@@ -13,3 +13,12 @@ export function isStopId(value: string): boolean {
 export function askStopRef(uid: string, stopId: string) {
   return plugentDb().collection("users").doc(uid).collection("ask_stops").doc(stopId);
 }
+
+/**
+ * An answer in flight (audit N1): `users/{uid}/ask_pending/{turnId}`, written when the answer
+ * starts and deleted when its turn is saved; a failure leaves its error code here. A reader
+ * whose connection dropped asks `/api/agents/ask/turn`, which reads the turn, then this.
+ */
+export function askPendingRef(uid: string, turnId: string) {
+  return plugentDb().collection("users").doc(uid).collection("ask_pending").doc(turnId);
+}
