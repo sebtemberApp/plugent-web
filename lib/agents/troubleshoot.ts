@@ -58,7 +58,7 @@ import {
   SebtemberApiError,
   searchKnowledge,
 } from "@/lib/sebtember/products";
-import { logCharge, usageOf } from "@/lib/usage";
+import { agentCharge, logCharge, searchCharge, type TurnCharge, usageOf } from "@/lib/usage";
 
 export const TS_MODEL = process.env.PLUGENT_TROUBLESHOOTING_MODEL?.trim() || "openai/gpt-5.4-mini";
 export const TS_LIMITS = {
@@ -248,6 +248,7 @@ async function respond(
   ];
   const usages: AskUsage[] = [];
   let searchTokens = 0;
+  let searchCharges: TurnCharge[] = [];
   let balanceAfter: number | null = null;
   const next: TsState = { ...state, problem };
 
@@ -318,6 +319,7 @@ async function respond(
       throw err;
     }
     searchTokens = search.charged.tokens;
+    searchCharges = searchCharge(requestId, search);
     balanceAfter = search.balanceAfter;
     const reference = search.passages
       .map(
@@ -436,6 +438,10 @@ async function respond(
     photo: req.photo,
     nextSeq,
     usage,
+    charges: [
+      ...searchCharges,
+      ...agentCharge(`${requestId}-turn`, "Step", turnTokens, usage, charged),
+    ],
   });
   return {
     runId: saved.runId,

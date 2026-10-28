@@ -197,6 +197,8 @@ export interface KnowledgeSearch {
   /** What sebtember charged for this search, to `source`, as line `{requestId}-search`. */
   charged: { tokens: number; duplicate: boolean };
   balanceAfter: number | null;
+  /** The search's model calls, raw counts, when sebtember sends them (requested 2026-10-28). */
+  usage?: ChargeUsage[];
 }
 
 /**

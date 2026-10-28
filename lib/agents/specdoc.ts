@@ -37,7 +37,7 @@ import {
   SebtemberApiError,
   searchKnowledge,
 } from "@/lib/sebtember/products";
-import { logCharge, usageOf } from "@/lib/usage";
+import { agentCharge, logCharge, searchCharge, usageOf } from "@/lib/usage";
 
 export type SpecDocAgent = "specification" | "quotation";
 
@@ -199,6 +199,7 @@ export async function runSpecDoc(
       tokens: searchTokens,
       balanceAfter: search.balanceAfter,
       charged: true,
+      charges: searchCharge(runId, search),
     };
   }
 
@@ -254,5 +255,9 @@ export async function runSpecDoc(
     balanceAfter,
     charged,
     usage,
+    charges: [
+      ...searchCharge(runId, search),
+      ...agentCharge(`${runId}-draft`, "Draft", draftTokens, usage, charged),
+    ],
   };
 }

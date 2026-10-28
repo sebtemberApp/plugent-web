@@ -58,3 +58,44 @@ export function logCharge(
     `[charge] ${agent} uid=${uid} line=${lineId} billed=${billed} tk ${formatUsage(usage)}`,
   );
 }
+
+/**
+ * One line a turn cost, as the Usage page shows it: who charged it (Plugent's own model work, or
+ * sebtember serving data / running its engine), what it was, the tokens taken from the wallet and
+ * the model calls behind it. Kept on the turn as `charges`.
+ */
+export interface TurnCharge {
+  line: string;
+  by: "plugent" | "sebtember";
+  what: string;
+  tokens: number;
+  usage?: ChargeUsage[];
+}
+
+/** Sebtember's knowledge search, charged by sebtember as `{requestId}-search`. None when it was free. */
+export function searchCharge(
+  requestId: string,
+  search: { charged: { tokens: number }; usage?: ChargeUsage[] },
+): TurnCharge[] {
+  if (!(search.charged.tokens > 0)) return [];
+  return [
+    {
+      line: `${requestId}-search`,
+      by: "sebtember",
+      what: "Knowledge search",
+      tokens: search.charged.tokens,
+      ...(search.usage?.length ? { usage: search.usage } : {}),
+    },
+  ];
+}
+
+/** Plugent's own model work. None when nothing was taken (zero tokens, or the charge failed). */
+export function agentCharge(
+  line: string,
+  what: string,
+  tokens: number,
+  usage: ChargeUsage[],
+  charged: boolean,
+): TurnCharge[] {
+  return tokens > 0 && charged ? [{ line, by: "plugent", what, tokens, usage }] : [];
+}

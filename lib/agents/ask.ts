@@ -29,7 +29,7 @@ import {
   SebtemberApiError,
   searchKnowledge,
 } from "@/lib/sebtember/products";
-import { logCharge, usageOf } from "@/lib/usage";
+import { agentCharge, logCharge, searchCharge, type TurnCharge, usageOf } from "@/lib/usage";
 
 /** A Vercel AI Gateway model id; sebtember's RFQ and gateway chat answer run on it. */
 export const ASK_MODEL = process.env.PLUGENT_ASK_MODEL?.trim() || "openai/gpt-5.4-mini";
@@ -147,8 +147,10 @@ export type AskResult =
       charged: boolean;
       /** The model calls behind this answer, raw counts; kept on the turn. */
       usage?: ChargeUsage[];
+      /** What the turn cost, line by line (the Usage page). */
+      charges?: TurnCharge[];
     }
-  | { kind: "not_covered"; tokens: number; balanceAfter: number | null };
+  | { kind: "not_covered"; tokens: number; balanceAfter: number | null; charges?: TurnCharge[] };
 
 export class AskRefused extends Error {
   constructor(readonly code: "low_balance" | "not_connected") {
@@ -188,7 +190,12 @@ export async function runAsk(
   }
   const searchTokens = search.charged.tokens;
   if (search.passages.length === 0) {
-    return { kind: "not_covered", tokens: searchTokens, balanceAfter: search.balanceAfter };
+    return {
+      kind: "not_covered",
+      tokens: searchTokens,
+      balanceAfter: search.balanceAfter,
+      charges: searchCharge(runId, search),
+    };
   }
 
   const result = await generateText({
@@ -231,5 +238,9 @@ export async function runAsk(
     balanceAfter,
     charged,
     usage,
+    charges: [
+      ...searchCharge(runId, search),
+      ...agentCharge(`${runId}-answer`, "Answer", answerTokens, usage, charged),
+    ],
   };
 }

@@ -4,6 +4,7 @@ import { signOut } from "firebase/auth";
 import {
   ArrowLeftRight,
   ArrowUpRight,
+  ChartNoAxesColumn,
   LayoutGrid,
   LogOut,
   Monitor,
@@ -142,6 +143,10 @@ export function AccountMenu({
           <Link role="menuitem" href="/agents" onClick={() => setOpen(false)} className={ITEM}>
             <LayoutGrid aria-hidden size={16} className="text-ink2" />
             All agents
+          </Link>
+          <Link role="menuitem" href="/usage" onClick={() => setOpen(false)} className={ITEM}>
+            <ChartNoAxesColumn aria-hidden size={16} className="text-ink2" />
+            Usage
           </Link>
           {sebtemberUrl && (
             <OutLink

@@ -33,6 +33,9 @@
   --a-price: #a23b72;
   --k-own: #7a6a1e;
   --k-lib: #0f7a6c;
+  /* The Usage page's two meters: Plugent's agent work, data served by Sebtember. */
+  --u-plg: #e0004d;
+  --u-seb: #3d5afe;
   color-scheme: light;
 }
 
@@ -61,6 +64,8 @@
     --a-price: #e58ab8;
     --k-own: #d9c470;
     --k-lib: #6fd3c3;
+    --u-plg: #ff4d88;
+    --u-seb: #7c8cff;
     color-scheme: dark;
   }
 }
@@ -89,6 +94,8 @@
   --a-price: #e58ab8;
   --k-own: #d9c470;
   --k-lib: #6fd3c3;
+  --u-plg: #ff4d88;
+  --u-seb: #7c8cff;
   color-scheme: dark;
 }
 
@@ -116,6 +123,8 @@
   --color-a-price: var(--a-price);
   --color-k-own: var(--k-own);
   --color-k-lib: var(--k-lib);
+  --color-u-plg: var(--u-plg);
+  --color-u-seb: var(--u-seb);
   --shadow-card: var(--shadow);
   --shadow-pop: var(--shadow-pop);
   /* Radii: 8 chip, 12 control, 16 inner, 20 list, 24 card. Buttons are capsules. */

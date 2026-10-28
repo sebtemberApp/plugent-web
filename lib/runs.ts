@@ -12,6 +12,7 @@ import type { AgentId } from "@/lib/agents/registry";
 import type { StepData, StepOutcomeKind } from "@/lib/agents/troubleshoot-prompts";
 import { plugentDb } from "@/lib/firebase/admin";
 import type { ChargeUsage } from "@/lib/sebtember/products";
+import type { TurnCharge } from "@/lib/usage";
 
 export const MAX_TITLE_CHARS = 80;
 const SIDEBAR_RUNS = 30;
@@ -175,9 +176,16 @@ export async function saveTurn(
           charged: result.charged,
           // The raw model usage behind the answer (model, input, output): the record of it.
           ...(result.usage ? { usage: result.usage } : {}),
+          ...(result.charges?.length ? { charges: result.charges } : {}),
           createdAt: now,
         }
-      : { question, kind: "not_covered", tokens: result.tokens, createdAt: now },
+      : {
+          question,
+          kind: "not_covered",
+          tokens: result.tokens,
+          ...(result.charges?.length ? { charges: result.charges } : {}),
+          createdAt: now,
+        },
   );
   await batch.commit();
   return runRef.id;
@@ -349,6 +357,8 @@ export async function commitTsTurns(
     nextSeq: number;
     /** The request's model calls, raw counts: kept on its last turn. */
     usage?: ChargeUsage[];
+    /** What the request cost, line by line: kept on its last turn (the Usage page). */
+    charges?: TurnCharge[];
   },
 ): Promise<{ runId: string; turnIds: string[] }> {
   const db = plugentDb();
@@ -381,11 +391,12 @@ export async function commitTsTurns(
   }
   const turnIds = args.turns.map((turn, i) => {
     const ref = runRef.collection("turns").doc();
-    const last = i === args.turns.length - 1 && args.usage?.length;
+    const last = i === args.turns.length - 1;
     batch.set(ref, {
       ...turn,
       seq: args.nextSeq + i,
-      ...(last ? { usage: args.usage } : {}),
+      ...(last && args.usage?.length ? { usage: args.usage } : {}),
+      ...(last && args.charges?.length ? { charges: args.charges } : {}),
       createdAt: now,
     });
     return ref.id;
@@ -456,6 +467,15 @@ export async function recordPricingCharge(
     by: "sebtember",
     tokens: charge.tokens,
     ...(charge.usage?.length ? { usage: charge.usage } : {}),
+    charges: [
+      {
+        line: lineId,
+        by: "sebtember",
+        what: step === "extract" ? "Reading the file" : "Matching and pricing",
+        tokens: charge.tokens,
+        ...(charge.usage?.length ? { usage: charge.usage } : {}),
+      } satisfies TurnCharge,
+    ],
     createdAt: now,
   });
   batch.update(ref, {
@@ -473,4 +493,77 @@ export async function touchRun(uid: string, runId: string, title?: string): Prom
       updatedAt: FieldValue.serverTimestamp(),
       ...(title ? { title: titleFrom(title) } : {}),
     });
+}
+
+/* ----------------------------------------------------------------------- usage */
+
+/** One run's charges inside a period, for the Usage page. */
+export interface UsageRun {
+  id: string;
+  agent: AgentId;
+  title: string;
+  /** ms since epoch: the run's latest charge inside the period. */
+  lastAt: number;
+  charges: Array<TurnCharge & { at: number }>;
+  /** Tokens charged before turns kept their lines: a total that cannot be split. */
+  unsplit: number;
+}
+
+const USAGE_RUNS = 200;
+
+/**
+ * Every run with a charge in `[since, until)` (null = unbounded), each with its charges in that
+ * window, newest run first. A turn written before `charges` existed counts its `tokens` as
+ * `unsplit`: the total is real, who charged it is not recorded.
+ */
+export async function readUsage(
+  uid: string,
+  since: number | null,
+  until: number | null,
+): Promise<{ runs: UsageRun[]; truncated: boolean }> {
+  let query = runs(uid).orderBy("updatedAt", "desc");
+  if (since !== null) query = query.where("updatedAt", ">=", new Date(since));
+  const snap = await query.limit(USAGE_RUNS).get();
+  const inWindow = (at: number) =>
+    (since === null || at >= since) && (until === null || at < until);
+  const read = await Promise.all(
+    snap.docs.map(async (doc): Promise<UsageRun | null> => {
+      const turns = await doc.ref.collection("turns").get();
+      const charges: UsageRun["charges"] = [];
+      let unsplit = 0;
+      let lastAt = 0;
+      for (const t of turns.docs) {
+        const at = millis(t.get("createdAt"));
+        if (!inWindow(at)) continue;
+        const stored = t.get("charges");
+        if (Array.isArray(stored)) {
+          for (const c of stored as TurnCharge[]) {
+            if (!(Number(c?.tokens) > 0)) continue;
+            charges.push({ ...c, tokens: Number(c.tokens), at });
+            lastAt = Math.max(lastAt, at);
+          }
+          continue;
+        }
+        const tokens = Number(t.get("tokens") ?? 0);
+        if (tokens > 0) {
+          unsplit += tokens;
+          lastAt = Math.max(lastAt, at);
+        }
+      }
+      if (charges.length === 0 && unsplit === 0) return null;
+      charges.sort((a, b) => a.at - b.at);
+      return {
+        id: doc.id,
+        agent: doc.get("agent"),
+        title: String(doc.get("title") ?? "Untitled"),
+        lastAt,
+        charges,
+        unsplit,
+      };
+    }),
+  );
+  return {
+    runs: read.filter((r): r is UsageRun => r !== null).sort((a, b) => b.lastAt - a.lastAt),
+    truncated: snap.size === USAGE_RUNS,
+  };
 }
