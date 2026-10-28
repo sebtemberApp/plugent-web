@@ -24,7 +24,10 @@ built like PeakPick. It NEVER reads sebtember's Firestore or vectors directly. T
 - ⚠️ **AGENT PROMPTS ARE SEBTEMBER'S, COPIED VERBATIM** — Chat (`lib/agents/chat-prompt.ts`: sebtember's
   `SYSTEM_INSTRUCTION_GPT`, language block, chunk header and version reminder, fed in sebtember's block order by
   `buildAskPrompt`), Specification/Quotation (`lib/agents/spec-prompts.ts`) and
-  Troubleshooting (`lib/agents/troubleshoot-prompts.ts`) carry sebtember's eval-chosen prompts; change them in sebtember first,
+  Troubleshooting (`lib/agents/troubleshoot-prompts.ts`) carry sebtember's eval-chosen prompts; every agent writes in
+  the user's Sebtember language (`lib/agents/profile.ts`, fail-open) and user text passes sebtember's
+  `sanitizeForPrompt` (`lib/agents/sanitize.ts`); Chat continues the run's last 10 messages and may ask back
+  through sebtember's `ask_clarification` (`lib/agents/clarify.ts`); change them in sebtember first,
   then copy. Every agent reads knowledge only through `searchKnowledge` and charges through `charge`.
 - ⚠️ **PRICING RUNS ON SEBTEMBER'S ENGINE** (`/api/products/pricing/*`, `lib/sebtember/pricing.ts`); sebtember charges
   each step itself and Plugent keeps each charge as a turn. Its LOGIC is sebtember's, copied verbatim

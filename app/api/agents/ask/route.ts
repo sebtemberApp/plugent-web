@@ -4,10 +4,10 @@
  * run (a new one when `runId` is absent) and the response carries its `runId`.
  */
 import { type NextRequest, NextResponse } from "next/server";
-import { AskRefused, MAX_QUESTION_CHARS, runAsk } from "@/lib/agents/ask";
+import { AskRefused, HISTORY_MESSAGES, MAX_QUESTION_CHARS, runAsk } from "@/lib/agents/ask";
 import { getSessionUser } from "@/lib/auth/session";
 import { readPrefs } from "@/lib/prefs";
-import { isRunId, runExists, saveTurn } from "@/lib/runs";
+import { historyFrom, isRunId, readRun, saveTurn } from "@/lib/runs";
 import { SebtemberApiError } from "@/lib/sebtember/products";
 
 export const runtime = "nodejs";
@@ -29,12 +29,15 @@ export async function POST(req: NextRequest) {
   }
   const mode = body?.mode === "deep" ? "deep" : "standard";
   const runId = body?.runId == null ? null : String(body.runId);
-  // Checked before any money is spent: a stale or foreign run id is refused for free.
-  if (runId !== null && !(isRunId(runId) && (await runExists(user.uid, runId)))) {
+  // Checked before any money is spent: a stale or foreign run id is refused for free. The run's
+  // earlier turns are the conversation the model continues (sebtember chat's last 10 messages).
+  const run = runId !== null && isRunId(runId) ? await readRun(user.uid, runId) : null;
+  if (runId !== null && (!run || run.run.agent !== "chat")) {
     return NextResponse.json({ error: "run_not_found" }, { status: 404 });
   }
+  const history = run ? historyFrom(run.turns, HISTORY_MESSAGES) : [];
   try {
-    const result = await runAsk(user.uid, question, mode);
+    const result = await runAsk(user.uid, question, mode, history);
     // The answer is paid for, so a failed save still returns it, without a run id.
     const savedRunId = await saveTurn(user.uid, runId, "chat", question, result).catch((err) => {
       console.error(`[ask] save failed uid=${user.uid}`, err);

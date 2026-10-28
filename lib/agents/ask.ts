@@ -24,21 +24,24 @@
  */
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { generateText } from "ai";
+import { generateText, type ModelMessage } from "ai";
 import {
   buildLanguageBlock,
+  CONTINUITY_REMINDER,
   PLUGENT_SOURCES_RULE,
   renderChunkHeader,
   retrievedDocsHaveVersionedPair,
   SYSTEM_INSTRUCTION_GPT,
   VERSION_REMINDER,
 } from "@/lib/agents/chat-prompt";
+import { CLARIFY_TOOL, sanitizeClarify } from "@/lib/agents/clarify";
+import { readUserContext } from "@/lib/agents/profile";
+import { sanitizeForPrompt, stripInlineFilenames } from "@/lib/agents/sanitize";
 import {
   type ChargeUsage,
   charge,
   getBalance,
   getKnowledgeCatalogues,
-  getProfile,
   type KnowledgePassage,
   type KnowledgeSearch,
   SebtemberApiError,
@@ -50,6 +53,12 @@ import { agentCharge, logCharge, searchCharge, type TurnCharge, usageOf } from "
 export const ASK_MODEL = process.env.PLUGENT_ASK_MODEL?.trim() || "openai/gpt-5.4-mini";
 export const MAX_QUESTION_CHARS = 2000;
 const MAX_PASSAGES = 12;
+/** Sebtember chat's history window: the last 10 messages (5 questions and their answers). */
+export const HISTORY_MESSAGES = 10;
+/** Sebtember's `MAX_OWNED_SUBJECTS`. */
+const MAX_OWNED_SUBJECTS = 20;
+/** Sebtember's `MAX_SEARCH_QUERY_CHARS`. */
+const MAX_SEARCH_QUERY_CHARS = 2000;
 const MAX_ANSWER_TOKENS = 2000;
 const ANSWER_TIMEOUT_MS = 45_000;
 
@@ -100,10 +109,26 @@ export function buildAskPrompt(args: {
   question: string;
   search: Pick<KnowledgeSearch, "passages" | "retrievalStrength">;
   personaMd: string;
+  /** The catalogues the user curates (their own), for the persona's second zone. */
+  ownedSubjects?: string[];
   languageName: string | null;
+  /** A follow-up in a chat that already has an answer: sebtember's continuity reminder. */
+  continuing?: boolean;
 }): string {
   const { passages } = args.search;
-  const notes = fence(args.personaMd.trim()).slice(0, 8000);
+  const notes = fence(sanitizeForPrompt(args.personaMd.trim(), 8000));
+  const owned = [
+    ...new Set((args.ownedSubjects ?? []).map((n) => sanitizeForPrompt(n).trim()).filter(Boolean)),
+  ].slice(0, MAX_OWNED_SUBJECTS);
+  // Sebtember's `buildPersonaBlock`: what the user wrote, then what their account shows.
+  const zones = [
+    notes
+      ? `## What the user told us about themselves — authoritative, follow this exactly\n${notes}`
+      : "",
+    owned.length > 0
+      ? `## What their account shows — calibration only; the section above overrides this on any conflict\n- Curates their own knowledge base on: ${owned.join(", ")}`
+      : "",
+  ].filter(Boolean);
   const chunks = passages.map(
     (p, i) =>
       `Passage: ${i + 1}\n${renderChunkHeader({
@@ -113,15 +138,14 @@ export function buildAskPrompt(args: {
       })}\n\n${fence(p.text)}`,
   );
   return [
-    notes
-      ? `<user_persona>\n## What the user told us about themselves — authoritative, follow this exactly\n${notes}\n</user_persona>`
-      : "",
+    zones.length > 0 ? `<user_persona>\n${zones.join("\n\n")}\n</user_persona>` : "",
     passages.length > 0 ? `<retrieved_data>\n${chunks.join("\n\n===\n\n")}\n</retrieved_data>` : "",
     `<retrieval_strength>${args.search.retrievalStrength}</retrieval_strength>`,
     passages.length > 0 &&
     retrievedDocsHaveVersionedPair(passages.map((p) => ({ filename: p.file_name })))
       ? VERSION_REMINDER
       : "",
+    args.continuing ? CONTINUITY_REMINDER : "",
     PLUGENT_SOURCES_RULE,
     buildLanguageBlock(args.languageName),
     args.question,
@@ -142,21 +166,6 @@ export function splitSources(text: string): { answer: string; used: number[] | n
     return { answer: lines.join("\n").trim(), used };
   }
   return { answer: text.trim(), used: null };
-}
-
-/** The language the user picked in Sebtember, as an English name ("Lithuanian"); null when
- *  unset, so the model answers in the question's language. Sebtember's `resolveResponseLanguage`. */
-export function languageName(code: string | null | undefined): string | null {
-  const raw = (code ?? "").trim().toLowerCase();
-  if (!raw) return null;
-  try {
-    return (
-      new Intl.DisplayNames(["en"], { type: "language", fallback: "none" }).of(raw.slice(0, 2)) ??
-      null
-    );
-  } catch {
-    return null;
-  }
 }
 
 /** What sebtember says about one granted catalogue: Library or not (Step 1176), and whose
@@ -231,8 +240,30 @@ export type AskResult =
       usage?: ChargeUsage[];
       /** What the turn cost, line by line (the Usage page). */
       charges?: TurnCharge[];
+      /** Chat asked a clarifying question instead (`answer` is the question): its chips. */
+      clarify?: { question: string; options: string[] };
     }
   | { kind: "not_covered"; tokens: number; balanceAfter: number | null; charges?: TurnCharge[] };
+
+/** One earlier message of the same chat, oldest first (the route reads them from the run). */
+export interface HistoryMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/**
+ * The search query. Sebtember's retrieval rewrites a follow-up with the conversation before it
+ * searches; the product search takes one query, so a follow-up ("and the 12 kW one?", or a
+ * clarify chip) is searched together with the question before it.
+ */
+export function searchQueryFor(question: string, history: HistoryMessage[]): string {
+  const before = [...history]
+    .reverse()
+    .find((m) => m.role === "user")
+    ?.content.trim();
+  const query = before ? `${before}\n${question}` : question;
+  return query.length > MAX_SEARCH_QUERY_CHARS ? query.slice(-MAX_SEARCH_QUERY_CHARS) : query;
+}
 
 export class AskRefused extends Error {
   constructor(readonly code: "low_balance" | "not_connected") {
@@ -244,6 +275,7 @@ export async function runAsk(
   uid: string,
   question: string,
   mode: AskMode = "standard",
+  history: HistoryMessage[] = [],
 ): Promise<AskResult> {
   const wallet = await getBalance(uid);
   if (wallet.balance < wallet.minimum) throw new AskRefused("low_balance");
@@ -261,13 +293,24 @@ export async function runAsk(
     )
     .catch(() => new Map<string, CatalogueInfo>());
 
-  // The user's Sebtember language and notes, read beside the search; a failure only means
-  // the model answers in the question's language without the notes.
-  const profile = getProfile(uid).catch(() => null);
+  // The user's Sebtember language and notes, read beside the search (fail-open).
+  const userContext = readUserContext(uid);
+  // The catalogues the user curates: their own ones Plugent reads (the persona's second zone).
+  const ownedSubjects = getKnowledgeCatalogues(uid)
+    .then(({ catalogues }) =>
+      catalogues.filter((c) => c.owner === null && !c.library && !c.paused).map((c) => c.name),
+    )
+    .catch(() => [] as string[]);
 
   let search: Awaited<ReturnType<typeof searchKnowledge>>;
   try {
-    search = await searchKnowledge(uid, wallet.source, question, runId, MAX_PASSAGES);
+    search = await searchKnowledge(
+      uid,
+      wallet.source,
+      searchQueryFor(question, history),
+      runId,
+      MAX_PASSAGES,
+    );
   } catch (err) {
     if (err instanceof SebtemberApiError && err.code === "not_connected") {
       throw new AskRefused("not_connected");
@@ -284,15 +327,29 @@ export async function runAsk(
     };
   }
 
+  const { languageName, personaMd } = await userContext;
+  // Sebtember's gateway turn: the earlier messages as they were, then the new question with
+  // the per-turn blocks spliced in front of it.
+  const messages: ModelMessage[] = [
+    ...history.map((m) => ({ role: m.role, content: sanitizeForPrompt(m.content) })),
+    {
+      role: "user",
+      content: buildAskPrompt({
+        question: sanitizeForPrompt(question),
+        search,
+        personaMd,
+        ownedSubjects: await ownedSubjects,
+        languageName,
+        continuing: history.some((m) => m.role === "assistant"),
+      }),
+    },
+  ];
   const result = await generateText({
     model: ASK_MODEL,
     instructions: SYSTEM_INSTRUCTION_GPT,
-    prompt: buildAskPrompt({
-      question,
-      search,
-      personaMd: (await profile)?.persona_md ?? "",
-      languageName: languageName((await profile)?.preferred_language),
-    }),
+    messages,
+    // Sebtember's clarify tool: calling it ends the turn with a question and chips.
+    tools: { ask_clarification: CLARIFY_TOOL },
     ...(mode === "deep"
       ? {
           maxOutputTokens: DEEP_MAX_ANSWER_TOKENS,
@@ -320,7 +377,29 @@ export async function runAsk(
     else charged = false;
   }
 
-  const { answer, used } = splitSources(result.text);
+  const call = result.toolCalls.find((c) => c.toolName === "ask_clarification");
+  const clarify = call ? sanitizeClarify(call.input) : null;
+  if (clarify) {
+    return {
+      kind: "answer",
+      answer: clarify.question,
+      sources: [],
+      tokens: searchTokens + answerTokens,
+      balanceAfter,
+      charged,
+      usage,
+      clarify,
+      charges: [
+        ...searchCharge(runId, search),
+        ...agentCharge(`${runId}-answer`, "Question back", answerTokens, usage, charged),
+      ],
+    };
+  }
+
+  const split = splitSources(result.text);
+  // Sebtember's backstop: a file name cited in the prose goes; the cards carry it.
+  const answer = stripInlineFilenames(split.answer);
+  const used = split.used;
   return {
     kind: "answer",
     answer,

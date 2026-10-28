@@ -32,7 +32,15 @@ export type StoredTurn = {
   question: string;
   createdAt: number;
 } & (
-  | { kind: "answer"; answer: string; sources: AskSource[]; tokens: number; charged: boolean }
+  | {
+      kind: "answer";
+      answer: string;
+      sources: AskSource[];
+      tokens: number;
+      charged: boolean;
+      /** Chat asked a clarifying question (`answer` is the question): its chips. */
+      clarify?: { question: string; options: string[] };
+    }
   | { kind: "not_covered"; tokens: number }
 );
 
@@ -104,10 +112,39 @@ export async function readRun(
             sources: Array.isArray(d.sources) ? d.sources : [],
             tokens: Number(d.tokens ?? 0),
             charged: d.charged !== false,
+            ...(d.clarify && Array.isArray(d.clarify.options)
+              ? {
+                  clarify: {
+                    question: String(d.clarify.question ?? ""),
+                    options: d.clarify.options.map(String),
+                  },
+                }
+              : {}),
           }
         : { ...base, kind: "not_covered" as const, tokens: Number(d.tokens ?? 0) };
     }),
   };
+}
+
+/**
+ * A chat's earlier messages for the model, oldest first: each question and what was answered
+ * (a clarifying question counts as the answer), at most `limit` messages. A question the
+ * catalogues did not cover is answered with the sentence the user saw.
+ */
+export function historyFrom(
+  turns: StoredTurn[],
+  limit: number,
+): { role: "user" | "assistant"; content: string }[] {
+  return turns
+    .flatMap((t) => [
+      { role: "user" as const, content: t.question },
+      {
+        role: "assistant" as const,
+        content:
+          t.kind === "answer" ? t.answer : "Your catalogues don't seem to cover this question.",
+      },
+    ])
+    .slice(-limit);
 }
 
 export async function runExists(uid: string, runId: string): Promise<boolean> {
@@ -177,6 +214,7 @@ export async function saveTurn(
           // The raw model usage behind the answer (model, input, output): the record of it.
           ...(result.usage ? { usage: result.usage } : {}),
           ...(result.charges?.length ? { charges: result.charges } : {}),
+          ...(result.clarify ? { clarify: result.clarify } : {}),
           createdAt: now,
         }
       : {

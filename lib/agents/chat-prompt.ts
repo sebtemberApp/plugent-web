@@ -360,6 +360,10 @@ export function retrievedDocsHaveVersionedPair(sources: Array<{ filename: string
 export const VERSION_REMINDER =
   "If <retrieved_data> contains more than one dated version of the same document (e.g. a 2024 and a 2026 price list / agreement), answer from the MOST RECENT version only. Add ONE short line noting an older version exists with some differing values — do NOT reproduce the older version's full content or list every version's values side by side.";
 
+/** Sebtember's `continuityReminder` (`lib/chat/dynamic-sections.ts`), verbatim. */
+export const CONTINUITY_REMINDER =
+  "This is a continuing conversation — your earlier replies in this thread are in the messages above. Answer the new question directly and build on them: do NOT re-state context, definitions, or where the information comes from if you already established it earlier in this thread — assume the user remembers. The source cards under each reply already handle attribution, so never narrate provenance ('this is from the manual', 'according to the document') in prose.";
+
 /* Sebtember's chunk header (`lib/chat/model-view.ts`), verbatim. */
 export interface ChunkHeaderMeta {
   filename: string;

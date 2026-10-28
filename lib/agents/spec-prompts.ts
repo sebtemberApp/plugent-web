@@ -125,3 +125,13 @@ OUTPUT RULES:
 - NO brand names, manufacturer names, or model numbers. Express every requirement generically and functionally; if the source names a brand or model, drop the name and keep the functional requirement.
 - Write EVERYTHING in the SAME language as the SOURCE ANSWER — chapter headings, requirement text, and the obligation form itself (see TONE). The finished document must read as a tender written natively in that language, with no English left in it apart from proper nouns, standard designations (EN, ISO, DIN, PED), unit symbols, and product codes.
 - Output ONLY the specification (or, when there are multiple items or no device/material at all, the single clarification line). No preamble, no closing remarks.`;
+
+/**
+ * Sebtember's LANGUAGE directive for a spec doc (`lib/agents/handlers/spec-agent.ts`, verbatim),
+ * appended to the system instruction when the user has a Sebtember language.
+ */
+export function withLanguage(systemInstruction: string, languageName: string | null): string {
+  return languageName
+    ? `${systemInstruction}\n\nLANGUAGE: Write your ENTIRE output in ${languageName}. Every "## " section heading is a plain label — translate ALL of them FULLY into ${languageName} (for example "Parameters" → its ${languageName} term), leaving no English in any heading and adding no agent name to it. Translate the prose too. Keep verbatim only standards, codes, units, and proper nouns. If instead you emit a clarification line, write that line in ${languageName} too.`
+    : systemInstruction;
+}

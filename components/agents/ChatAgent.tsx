@@ -53,6 +53,8 @@ type Turn = {
         sources: Source[];
         tokens: number;
         charged: boolean;
+        /** Chat asked a clarifying question (`answer` is the question): its chips. */
+        clarify?: { question: string; options: string[] };
       }
     | { kind: "not_covered"; tokens: number }
     | { kind: "error"; code: string };
@@ -148,6 +150,7 @@ function fromStored(turns: StoredTurn[]): Turn[] {
             sources: t.sources,
             tokens: t.tokens,
             charged: t.charged,
+            ...(t.clarify ? { clarify: t.clarify } : {}),
           }
         : { kind: "not_covered", tokens: t.tokens },
   }));
@@ -210,15 +213,16 @@ export function ChatAgent({
     end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [turns]);
 
-  async function ask() {
-    const q = question.trim();
+  /** Sends the composer's text, or `picked`: a clarifying question's chip. */
+  async function ask(picked?: string) {
+    const q = (picked ?? question).trim();
     if (!q || busy) return;
     const id = `local-${nextId.current++}`;
     setTurns((t) => [
       ...t,
       { id, question: q, state: { kind: "pending", deep: ui.modes && mode === "deep" } },
     ]);
-    setQuestion("");
+    if (picked === undefined) setQuestion("");
     const settle = (state: Turn["state"]) =>
       setTurns((t) => t.map((turn) => (turn.id === id ? { ...turn, state } : turn)));
     try {
@@ -246,6 +250,7 @@ export function ChatAgent({
               sources: data.sources,
               tokens: data.tokens,
               charged: data.charged,
+              ...(data.clarify ? { clarify: data.clarify } : {}),
             }
           : { kind: "not_covered", tokens: data.tokens },
       );
@@ -306,6 +311,8 @@ export function ChatAgent({
               turn={turn}
               runId={runId}
               first={i === 0}
+              latest={i === turns.length - 1 && !busy}
+              onOption={(option) => void ask(option)}
               name={agent.name}
               pending={ui.pending}
               sourceCards={ui.sourceCards}
@@ -328,7 +335,7 @@ export function ChatAgent({
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              ask();
+              void ask();
             }}
             className="flex flex-col gap-2 rounded-card bg-card py-3 pr-3 pl-[18px] shadow-card focus-within:ring-2 focus-within:ring-act/35"
           >
@@ -342,7 +349,7 @@ export function ChatAgent({
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
-                  ask();
+                  void ask();
                 }
               }}
               rows={2}
@@ -379,9 +386,14 @@ function TurnView({
   name,
   pending,
   sourceCards,
+  latest,
+  onOption,
 }: {
   turn: Turn;
   runId: string | null;
+  /** The last turn of the chat: only its clarifying chips can be picked (sebtember's rule). */
+  latest: boolean;
+  onOption: (option: string) => void;
   name: string;
   pending: string;
   sourceCards: boolean;
@@ -425,7 +437,25 @@ function TurnView({
           <AnswerFooter owners={[]} runId={runId} question={turn.question} answer="" />
         </article>
       )}
-      {s.kind === "answer" && (
+      {s.kind === "answer" && s.clarify && (
+        <article className="flex flex-col gap-3 rounded-card bg-card px-6 py-5 shadow-card">
+          <p className="text-[16px] leading-[26px]">{s.clarify.question}</p>
+          <div className="flex flex-wrap gap-2">
+            {s.clarify.options.map((option) => (
+              <button
+                key={option}
+                type="button"
+                disabled={!latest}
+                onClick={() => onOption(option)}
+                className="rounded-full bg-fill1 px-4 py-2 text-[15px] font-semibold hover:bg-fill2 disabled:opacity-50 disabled:hover:bg-fill1"
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+        </article>
+      )}
+      {s.kind === "answer" && !s.clarify && (
         <article className="flex flex-col gap-4 rounded-card bg-card px-6 py-5 shadow-card">
           <AnswerText text={s.answer} />
           {sourceCards && s.sources.length > 0 && (

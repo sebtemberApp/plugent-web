@@ -18,12 +18,12 @@
  * ⚠️ PASSAGES ARE DATA — the reference block is the user's stored text, never instructions.
  *
  * Differs from sebtember on purpose: one gateway model (the clarify tool and the photo both
- * work there, so no native-model pin is needed), and English is the default language
- * ("the language the user wrote in"), as Plugent is English-first.
+ * work there, so no native-model pin is needed). The reply language is the user's Sebtember
+ * language, as in sebtember ("the language the user wrote in" when they set none).
  */
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { generateText, jsonSchema, type ModelMessage, tool } from "ai";
+import { generateText, type ModelMessage } from "ai";
 import {
   AskRefused,
   type AskSource,
@@ -32,6 +32,9 @@ import {
   type CatalogueInfo,
   ownerLabel,
 } from "@/lib/agents/ask";
+import { CLARIFY_TOOL, sanitizeClarify } from "@/lib/agents/clarify";
+import { readUserContext } from "@/lib/agents/profile";
+import { sanitizeForPrompt } from "@/lib/agents/sanitize";
 import {
   buildClarifyPrompt,
   buildStepPrompt,
@@ -73,47 +76,6 @@ export const TS_LIMITS = {
   SOURCES_SHOWN: 3,
 } as const;
 const MODEL_TIMEOUT_MS = 45_000;
-
-const CLARIFY_TOOL = tool({
-  description:
-    "Ask the user ONE focused clarifying question, with a short list of options, " +
-    "when their request is genuinely ambiguous in a way that materially changes the " +
-    "answer (e.g. several distinct product variants match what they named). Prefer " +
-    "answering directly; only call this when guessing would risk a wrong answer. " +
-    "Provide 2-4 concise, mutually exclusive options.",
-  inputSchema: jsonSchema<{ question: string; options: string[] }>({
-    type: "object",
-    properties: {
-      question: { type: "string", description: "The single clarifying question to show the user." },
-      options: {
-        type: "array",
-        items: { type: "string" },
-        description: "2-4 short, mutually exclusive choices the user can pick from.",
-      },
-    },
-    required: ["question", "options"],
-  }),
-});
-
-/** sebtember `sanitizeClarify`: trim, dedupe, 2-4 options, length caps. */
-export function sanitizeClarify(raw: unknown): { question: string; options: string[] } | null {
-  const args = (raw ?? {}) as Record<string, unknown>;
-  const question = typeof args.question === "string" ? args.question.trim() : "";
-  if (!question) return null;
-  const options = Array.from(
-    new Set(
-      (Array.isArray(args.options) ? args.options : [])
-        .filter((o): o is string => typeof o === "string")
-        .map((o) => o.trim())
-        .filter((o) => o.length > 0),
-    ),
-  );
-  if (options.length < 2) return null;
-  return {
-    question: question.slice(0, 300),
-    options: options.slice(0, 4).map((o) => o.slice(0, 80)),
-  };
-}
 
 export class TsRefused extends Error {
   constructor(readonly code: "run_not_found" | "busy" | "finished" | "not_current_step") {
@@ -234,6 +196,8 @@ async function respond(
   const requestId = randomUUID();
 
   const text = picked ? picked.outcomeLabel : req.text;
+  // The user's Sebtember language (fail-open), read while the turn runs.
+  const userContext = readUserContext(uid);
   const problem = picked ? state.problem : [state.problem, req.text].filter(Boolean).join("\n");
   const photo = req.photo ?? (runId ? await readTsPhoto(uid, runId) : null);
   const out: TsTurnBody[] = [
@@ -264,11 +228,11 @@ async function respond(
       model: TS_MODEL,
       messages: userContent(
         buildClarifyPrompt({
-          problem,
+          problem: sanitizeForPrompt(problem),
           answered,
           hasPhoto: photo !== null,
           clarifyTurnsLeft: TS_LIMITS.MAX_CLARIFY_TURNS - state.clarifyCount,
-          languageName: null,
+          languageName: (await userContext).languageName,
         }),
         photo,
       ),
@@ -308,7 +272,7 @@ async function respond(
       search = await searchKnowledge(
         uid,
         wallet.source,
-        query.slice(0, 2000),
+        sanitizeForPrompt(query, 2000),
         requestId,
         TS_LIMITS.PASSAGES,
       );
@@ -346,13 +310,13 @@ async function respond(
       model: TS_MODEL,
       messages: userContent(
         buildStepPrompt({
-          problem,
+          problem: sanitizeForPrompt(problem),
           reference,
           tried: picked ? [...tried, picked] : tried,
           lastOutcome: picked,
           nextIndex,
           stepsLeft: Math.max(TS_LIMITS.MAX_STEPS - nextIndex, 0),
-          languageName: null,
+          languageName: (await userContext).languageName,
         }),
         photo,
       ),
@@ -459,7 +423,7 @@ function clarifyPairs(turns: TsTurn[]): { question: string; answer: string }[] {
   turns.forEach((t, i) => {
     const reply = turns[i + 1];
     if (t.role === "clarify" && reply?.role === "user") {
-      pairs.push({ question: t.question, answer: reply.text });
+      pairs.push({ question: t.question, answer: sanitizeForPrompt(reply.text, 500) });
     }
   });
   return pairs;

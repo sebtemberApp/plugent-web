@@ -28,7 +28,12 @@ import {
   type CatalogueInfo,
   ownerLabel,
 } from "@/lib/agents/ask";
-import { BOM_SYSTEM_INSTRUCTION, RFQ_SYSTEM_INSTRUCTION } from "@/lib/agents/spec-prompts";
+import { readUserContext } from "@/lib/agents/profile";
+import {
+  BOM_SYSTEM_INSTRUCTION,
+  RFQ_SYSTEM_INSTRUCTION,
+  withLanguage,
+} from "@/lib/agents/spec-prompts";
 import {
   charge,
   getBalance,
@@ -175,6 +180,9 @@ export async function runSpecDoc(
     )
     .catch(() => new Map<string, CatalogueInfo>());
 
+  // The user's Sebtember language (fail-open), read beside the search.
+  const userContext = readUserContext(uid);
+
   let search: Awaited<ReturnType<typeof searchKnowledge>>;
   try {
     search = await searchKnowledge(
@@ -217,7 +225,7 @@ export async function runSpecDoc(
 
   const result = await generateText({
     model: cfg.model,
-    instructions: cfg.instructions,
+    instructions: withLanguage(cfg.instructions, (await userContext).languageName),
     prompt,
     maxOutputTokens: cfg.maxOutputTokens,
     timeout: DRAFT_TIMEOUT_MS,
