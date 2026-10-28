@@ -21,6 +21,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { generateText } from "ai";
 import {
+  type ChargeUsage,
   charge,
   getBalance,
   getKnowledgeCatalogues,
@@ -28,6 +29,7 @@ import {
   SebtemberApiError,
   searchKnowledge,
 } from "@/lib/sebtember/products";
+import { logCharge, usageOf } from "@/lib/usage";
 
 /** A Vercel AI Gateway model id; sebtember's RFQ and gateway chat answer run on it. */
 export const ASK_MODEL = process.env.PLUGENT_ASK_MODEL?.trim() || "openai/gpt-5.4-mini";
@@ -143,6 +145,8 @@ export type AskResult =
       balanceAfter: number | null;
       /** false when the answer's charge failed: the answer is still shown, and logged. */
       charged: boolean;
+      /** The model calls behind this answer, raw counts; kept on the turn. */
+      usage?: ChargeUsage[];
     }
   | { kind: "not_covered"; tokens: number; balanceAfter: number | null };
 
@@ -201,10 +205,12 @@ export async function runAsk(
   });
 
   const answerTokens = billedAnswerTokens(result.totalUsage);
+  const usage = [usageOf(ASK_MODEL, result.totalUsage)];
+  logCharge("chat", uid, `${runId}-answer`, answerTokens, usage);
   let balanceAfter = search.balanceAfter;
   let charged = true;
   if (answerTokens > 0) {
-    const line = { id: `${runId}-answer`, tokens: answerTokens, operation: "ask_answer" };
+    const line = { id: `${runId}-answer`, tokens: answerTokens, operation: "ask_answer", usage };
     // The line is idempotent on sebtember, so one retry can never charge twice.
     const res = await charge(uid, wallet.source, [line]).catch(() =>
       charge(uid, wallet.source, [line]).catch((err) => {
@@ -224,5 +230,6 @@ export async function runAsk(
     tokens: searchTokens + answerTokens,
     balanceAfter,
     charged,
+    usage,
   };
 }

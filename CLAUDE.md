@@ -15,6 +15,8 @@ built like PeakPick. It NEVER reads sebtember's Firestore or vectors directly. T
 - ⚠️ **Every route reads the user with `getSessionUser()`** (`lib/auth/session.ts`); never trust a client uid.
 - ⚠️ **Money goes through sebtember's product API** — gate on `getBalance` before work, store the returned
   `source` on the run, `charge` with the run's own id as the line id (idempotent). Never re-resolve the source.
+  Every line carries its raw model `usage` (`lib/usage.ts`: model, input, output, reasoning, cached), logged as
+  one `[charge]` line and kept on the turn; usage never prices a line.
 - **A sebtember-side API change ships before the Plugent change that uses it.**
 - ⚠️ **Plugent's Firestore is SERVER-ONLY** (`lib/firebase/admin.ts`, the same service-account key;
   `firestore.rules` denies every client). Runs live under `users/{uid}/runs/{runId}` + `turns/`, so a run id

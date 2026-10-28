@@ -58,6 +58,7 @@ import {
   SebtemberApiError,
   searchKnowledge,
 } from "@/lib/sebtember/products";
+import { logCharge, usageOf } from "@/lib/usage";
 
 export const TS_MODEL = process.env.PLUGENT_TROUBLESHOOTING_MODEL?.trim() || "openai/gpt-5.4-mini";
 export const TS_LIMITS = {
@@ -399,9 +400,17 @@ async function respond(
 
   // ---- 3. one charge for the turn's model work, to the source the balance returned.
   const turnTokens = usages.reduce((sum, u) => sum + billedAnswerTokens(u), 0);
+  // One entry per model call (clarify, step), raw counts: logged, sent with the line, kept.
+  const usage = usages.map((u) => usageOf(TS_MODEL, u));
+  logCharge("troubleshooting", uid, `${requestId}-turn`, turnTokens, usage);
   let charged = true;
   if (turnTokens > 0) {
-    const line = { id: `${requestId}-turn`, tokens: turnTokens, operation: "troubleshooting_turn" };
+    const line = {
+      id: `${requestId}-turn`,
+      tokens: turnTokens,
+      operation: "troubleshooting_turn",
+      usage,
+    };
     const res = await charge(uid, wallet.source, [line]).catch(() =>
       charge(uid, wallet.source, [line]).catch((err) => {
         console.error(`[troubleshooting] charge failed uid=${uid} req=${requestId}`, err);
@@ -426,6 +435,7 @@ async function respond(
       : null,
     photo: req.photo,
     nextSeq,
+    usage,
   });
   return {
     runId: saved.runId,

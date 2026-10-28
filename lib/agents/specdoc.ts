@@ -37,6 +37,7 @@ import {
   SebtemberApiError,
   searchKnowledge,
 } from "@/lib/sebtember/products";
+import { logCharge, usageOf } from "@/lib/usage";
 
 export type SpecDocAgent = "specification" | "quotation";
 
@@ -222,10 +223,12 @@ export async function runSpecDoc(
   });
 
   const draftTokens = billedDraftTokens(result.totalUsage, cfg.discounts);
+  const usage = [usageOf(cfg.model, result.totalUsage)];
+  logCharge(agent, uid, `${runId}-draft`, draftTokens, usage);
   let balanceAfter = search.balanceAfter;
   let charged = true;
   if (draftTokens > 0) {
-    const line = { id: `${runId}-draft`, tokens: draftTokens, operation: cfg.operation };
+    const line = { id: `${runId}-draft`, tokens: draftTokens, operation: cfg.operation, usage };
     // Idempotent per line id on sebtember, so one retry can never charge twice.
     const res = await charge(uid, wallet.source, [line]).catch(() =>
       charge(uid, wallet.source, [line]).catch((err) => {
@@ -250,5 +253,6 @@ export async function runSpecDoc(
     tokens: searchTokens + draftTokens,
     balanceAfter,
     charged,
+    usage,
   };
 }

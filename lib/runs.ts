@@ -11,6 +11,7 @@ import type { AskResult, AskSource } from "@/lib/agents/ask";
 import type { AgentId } from "@/lib/agents/registry";
 import type { StepData, StepOutcomeKind } from "@/lib/agents/troubleshoot-prompts";
 import { plugentDb } from "@/lib/firebase/admin";
+import type { ChargeUsage } from "@/lib/sebtember/products";
 
 export const MAX_TITLE_CHARS = 80;
 const SIDEBAR_RUNS = 30;
@@ -172,6 +173,8 @@ export async function saveTurn(
           sources: result.sources,
           tokens: result.tokens,
           charged: result.charged,
+          // The raw model usage behind the answer (model, input, output): the record of it.
+          ...(result.usage ? { usage: result.usage } : {}),
           createdAt: now,
         }
       : { question, kind: "not_covered", tokens: result.tokens, createdAt: now },
@@ -344,6 +347,8 @@ export async function commitTsTurns(
     stepDone: { stepId: string; kind: StepOutcomeKind; label: string } | null;
     photo: { mediaType: string; data: string } | null;
     nextSeq: number;
+    /** The request's model calls, raw counts: kept on its last turn. */
+    usage?: ChargeUsage[];
   },
 ): Promise<{ runId: string; turnIds: string[] }> {
   const db = plugentDb();
@@ -376,7 +381,13 @@ export async function commitTsTurns(
   }
   const turnIds = args.turns.map((turn, i) => {
     const ref = runRef.collection("turns").doc();
-    batch.set(ref, { ...turn, seq: args.nextSeq + i, createdAt: now });
+    const last = i === args.turns.length - 1 && args.usage?.length;
+    batch.set(ref, {
+      ...turn,
+      seq: args.nextSeq + i,
+      ...(last ? { usage: args.usage } : {}),
+      createdAt: now,
+    });
     return ref.id;
   });
   if (args.photo) {

@@ -23,6 +23,17 @@ export interface ChargeLine {
   id: string;
   tokens: number;
   operation: string;
+  /** The model work behind the line, raw counts (sebtember Step 1182). Never prices it. */
+  usage?: ChargeUsage[];
+}
+
+/** One model call's raw usage, as sebtember's `/api/products/charge` takes it. */
+export interface ChargeUsage {
+  model: string;
+  input: number;
+  output: number;
+  reasoning?: number;
+  cached?: number;
 }
 
 export interface ChargeResult {
