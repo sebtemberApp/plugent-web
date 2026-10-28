@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
  * The microphone, recorded in the browser — sebtember's `useAudioRecorder`
@@ -42,11 +42,12 @@ export function useAudioRecorder(onComplete: (blob: Blob, mimeType: string) => v
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const elapsed = useRef(0);
 
-  const supported = useMemo(
+  // Read after mount: the server cannot see the browser, so the first render must say "no
+  // microphone" on both sides (a different first render is a hydration error in React 19).
+  const [supported, setSupported] = useState(false);
+  useEffect(
     () =>
-      typeof navigator !== "undefined" &&
-      !!navigator.mediaDevices?.getUserMedia &&
-      typeof MediaRecorder !== "undefined",
+      setSupported(!!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined"),
     [],
   );
 

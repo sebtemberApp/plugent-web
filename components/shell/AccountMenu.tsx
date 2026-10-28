@@ -263,8 +263,8 @@ export function AccountMenu({
                 className={`${ITEM} disabled:cursor-default disabled:hover:bg-transparent`}
               >
                 <Languages aria-hidden size={16} className="text-ink2" />
-                <span className="flex-1">Preferred language</span>
-                <span className="max-w-[45%] truncate text-[13px] text-ink2">{languageLabel}</span>
+                <span className="flex-1 whitespace-nowrap">Preferred language</span>
+                <span className="min-w-0 truncate text-[13px] text-ink2">{languageLabel}</span>
                 <ChevronRight aria-hidden size={15} className="shrink-0 text-ink2" />
               </button>
               <button
