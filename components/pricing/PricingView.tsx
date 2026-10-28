@@ -42,19 +42,28 @@ import { FileSpreadsheetIcon, Loader2Icon, RefreshCwIcon, UploadIcon } from "luc
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnswerFooter } from "@/components/agents/ChatAgent";
-import { DiscountPanel } from "@/components/pricing/DiscountPanel";
 import { DiscountPrompt } from "@/components/pricing/DiscountPrompt";
 import { GatherProgressView } from "@/components/pricing/GatherProgressView";
-import { type PricingStep, PricingSteps } from "@/components/pricing/PricingSteps";
+import type { PricingStage as PricingStep } from "@/components/pricing/PricingTables";
+import {
+  ExtractTable,
+  MatchTable,
+  matchTiles,
+  PILL,
+  PILL_QUIET,
+  PriceTable,
+  pricedLineCount,
+  priceTiles,
+  StageAction,
+  StageTabs,
+  Tiles,
+} from "@/components/pricing/PricingTables";
 import {
   CancelButton,
-  CardHeader,
   CoverageNote,
   Dismissable,
   ExportButton,
   IplDownloads,
-  IplResultView,
-  ItemList,
   StatusLine,
   useOptionSelection,
 } from "@/components/pricing/pricing-parts";
@@ -62,7 +71,7 @@ import { TemplateExportButton } from "@/components/pricing/TemplateExportButton"
 import { useDiscountTables } from "@/components/pricing/use-discount-tables";
 import { useBalance } from "@/components/shell/BalanceContext";
 import { AgentIcon } from "@/components/ui/AgentIcon";
-import { discountGroupsOf } from "@/lib/agents/ipl/discount";
+import { type DiscountClient, discountGroupsOf } from "@/lib/agents/ipl/discount";
 import type { IplExportDiscount } from "@/lib/agents/ipl/export";
 import {
   formatUploadLimit,
@@ -504,6 +513,19 @@ export function PricingView({
     setDiscountClient(state.discountClient);
   }
   /**
+   * Step 1110 — the Price step's sheet, for the Source row: the beneficiary's
+   * row as the page's one load of the table resolved it (the SAME row the
+   * panel prices on — Step 1117 moved that resolution to the server), so the
+   * sheet the row downloads is the sheet the card shows. Absent on the Match
+   * step, whose sheet is unchanged.
+   */
+  const exportDiscount = useMemo<IplExportDiscount>(() => {
+    const t = discountTables.tables;
+    if (!discountClient || t.kind !== "loaded" || !t.client)
+      return { client: null, sourceFile: "" };
+    return { client: t.client, sourceFile: t.sourceFile };
+  }, [discountClient, discountTables.tables]);
+  /**
    * ⚠️ ADJUSTED DURING RENDER, not in an effect — React's own documented
    * pattern, and the same one `listKey` above uses. An effect would move the
    * user a frame LATE, so pressing Next would flash the confirm list they just
@@ -734,103 +756,60 @@ export function PricingView({
        the page background. These are `MessageList`'s classes, which
        `SpecDocView` already copies for the same reason (Step 939), so the three
        surfaces read as one product. */
+    /* Plugent's look (the canvas's Pricing board): the totals as tiles, the lines as one table
+       with column headings, the coverage note under it, and one pill action. The rules in the
+       comments below are sebtember's and still hold. */
     <>
-      <div className="flex flex-col gap-3 rounded-card border border-hairline bg-card px-4 py-3 shadow-card">
-        {/* Step 1145 — the header row: the coverage line, the tick-all box in
-            the rows' own column, a rule beneath. */}
-        <CardHeader allChecked={allKept} onToggleAll={setAllItems} label="line">
-          <CoverageNote
-            read={state.sourceItems.length}
-            coverage={state.coverage}
-            capped={state.capped}
-            itemsSizeCut={state.itemsSizeCut}
-            notListed={notListed}
-            selectedCount={keptIndices.length}
-          />
-        </CardHeader>
-        {/* ⚠️ NO `max-h` / `overflow-y`. The list used to scroll inside a 16rem
-          window, so a 15-line read showed nine and a 158-line tender was a
-          peephole onto a list the user has to CHECK. The page already scrolls;
-          this just gets long, which is correct. */}
-        {/* ⚠️ Step 1081 — the VISIBLE rows, with their canonical indices
-          alongside. Passing the filtered array without them would re-aim every
-          checkbox below a hidden row. */}
-        <ItemList
-          items={visibleItems}
-          indices={visibleIndices}
-          selected={selectedSet}
-          onToggle={toggleItem}
-          className="text-subhead"
+      <Tiles
+        tiles={[
+          { label: "Lines read", value: state.sourceItems.length },
+          { label: "Ticked to match", value: keptIndices.length, tone: "ok" },
+          ...(notListed > 0
+            ? [
+                {
+                  label: "Not listed",
+                  value: notListed,
+                  title: "Lines with no quantity. They are in the XLS.",
+                },
+              ]
+            : []),
+        ]}
+      />
+      {/* ⚠️ NO `max-h` / `overflow-y`: the page already scrolls, a list the user has to CHECK
+          is never a peephole. ⚠️ The VISIBLE rows with their canonical indices alongside, so a
+          hidden row never re-aims a checkbox. */}
+      <ExtractTable
+        items={visibleItems}
+        indices={visibleIndices}
+        selected={selectedSet}
+        onToggle={toggleItem}
+        allChecked={allKept}
+        onToggleAll={setAllItems}
+      />
+      <div className="text-[13px] text-ink2">
+        <CoverageNote
+          read={state.sourceItems.length}
+          coverage={state.coverage}
+          capped={state.capped}
+          itemsSizeCut={state.itemsSizeCut}
+          notListed={notListed}
+          selectedCount={keptIndices.length}
         />
-        {actionError ? (
-          <p className="text-xs text-destructive" role="alert">
-            {actionError}
-          </p>
-        ) : null}
-        <div className="flex items-center justify-end gap-2">
-          {/* Plugent shows no token estimates (operator, 2026-10-27): the line sebtember
-              prints here is left out, and the button keeps its place on the right. */}
-          <span className="mr-auto" />
-          {/* ⚠️ NO "Start over" HERE any more (operator's call — the label did
-              not say what it did). The action is not lost: the sidebar row's
-              kebab still deletes the whole pricing, which is the way out of a
-              wrong upload. It is a less discoverable path than a button on the
-              card, and that is the accepted cost of removing a control nobody
-              could read. The FORCE-cancel used by the stale-run branches is
-              untouched — those are the paths that recover a wedged run, and
-              they are not this button. */}
-          <button
-            type="button"
-            onClick={() => void startRun(keptIndices)}
-            /* ⚠️ Step 1095 — DISABLED WHILE THE RUN IS GOING. The Extract step
-               is reachable during a match now, and its button would otherwise
-               offer to start a second one: harmless on a running run (the claim
-               409s) but NOT on a paused one, where the click would be taken as
-               the continuation and resume with the selection ignored. */
-            disabled={busy || keptIndices.length === 0 || inFlight}
-            title={inFlight ? "This run is still going." : undefined}
-            className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-info px-4 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-          >
-            {busy ? (
-              <Loader2Icon className="h-4 w-4 animate-spin" aria-hidden="true" />
-            ) : matchStarted ? (
-              /* ⚠️ Step 1095 — "Refresh", the operator's word, once this list
-                 has been matched before. The click does the same thing either
-                 way; what differs is that there is now a priced result it will
-                 REPLACE, and the label is the only place a user learns that
-                 before clicking. Step 1074 removed a button for failing exactly
-                 this test. */
-              <>
-                <RefreshCwIcon className="h-3.5 w-3.5" aria-hidden="true" />
-                Refresh
-              </>
-            ) : (
-              // ⚠️ "Next", not "Price" — this confirms the list and starts
-              // MATCHING, and the priced table only appears after that. The old
-              // label named the last stage rather than the one the click begins.
-              "Next >"
-            )}
-          </button>
-        </div>
       </div>
-      {/* ⚠️ BELOW the card, not inside it — the treatment every RESULT action in
-        this product already has (Step 403 moved the agent card's Copy/Source
-        footer out for the same reason, and the priced export sits the same way).
-        It is about the card, not a control within it.
-
-        ⚠️ And it exports what was READ, never the selection: four populated
-        fields (`position`, `unit`, `kind`, `specs`) reach this file and no
-        surface, and dropping the unticked lines
-        would delete rows the reader can see in their own document. ⚠️ Step 1095 made that true again — the claim
-        had been narrowing the stored array out from under this rule, so after a
-        run the "what was read" export was the selection.
-
-        ⚠️ Step 1081 made this the RECOURSE rather than a nicety. The card no
-        longer lists the lines with no quantity, so this file is the only place
-        they can be seen — and if the model misread a quantity on a real order
-        line, this is where the user finds it. The `Priced` column already tells
-        the two apart. */}
-      <div className="flex items-center justify-end">
+      {actionError ? (
+        <p className="text-[13px] text-danger" role="alert">
+          {actionError}
+        </p>
+      ) : null}
+      <StageAction
+        note={
+          matchStarted
+            ? "Matches the ticked lines again and replaces the result."
+            : "Each ticked line is matched to a product in your catalogues."
+        }
+      >
+        {/* ⚠️ It exports what was READ, never the selection (sebtember Step 1081): the lines
+            with no quantity are only seen here. */}
         <ExportButton
           label="XLS"
           icon={<FileSpreadsheetIcon size={15} aria-hidden="true" />}
@@ -845,7 +824,29 @@ export function PricingView({
             )
           }
         />
-      </div>
+        <button
+          type="button"
+          onClick={() => void startRun(keptIndices)}
+          /* ⚠️ Step 1095 — DISABLED WHILE THE RUN IS GOING: on a paused run the click would be
+             taken as the continuation and resume with the selection ignored. */
+          disabled={busy || keptIndices.length === 0 || inFlight}
+          title={inFlight ? "This run is still going." : undefined}
+          className={PILL}
+        >
+          {busy ? (
+            <Loader2Icon className="h-5 w-5 animate-spin" aria-hidden="true" />
+          ) : matchStarted ? (
+            /* ⚠️ Step 1095 — "Refresh" once this list has been matched: the label is the only
+               place a user learns the click REPLACES a priced result. */
+            <>
+              <RefreshCwIcon className="h-4 w-4" aria-hidden="true" />
+              Refresh
+            </>
+          ) : (
+            `Match ${keptIndices.length} ${keptIndices.length === 1 ? "line" : "lines"}`
+          )}
+        </button>
+      </StageAction>
     </>
   );
 
@@ -861,18 +862,16 @@ export function PricingView({
   const matchPanel = matchStale ? (
     state.result && state.result.items.length > 0 ? (
       <div className="flex flex-col gap-2">
-        <p className="text-sm text-muted-foreground">
-          This didn&apos;t finish — showing the{" "}
-          <span className="font-semibold text-foreground">{state.result.items.length}</span>{" "}
+        <p className="text-[15px] text-ink2">
+          This didn&apos;t finish. Showing the{" "}
+          <span className="font-semibold text-ink">{state.result.items.length}</span>{" "}
           {state.result.items.length === 1 ? "line" : "lines"} completed before it stopped.
         </p>
-        <IplResultView
+        <MatchTable
           result={state.result}
           selected={selected}
           onToggleOption={toggleOption}
           onToggleAll={setAllOptions}
-          total={false}
-          className="flex flex-col gap-3 rounded-card border border-hairline bg-card px-4 py-3 shadow-card"
         />
         <div className="flex justify-end">
           {/*
@@ -883,7 +882,7 @@ export function PricingView({
             force-cancelled a run that had just resumed.
           */}
           {state.continueNeeded ? (
-            <span className="text-sm text-muted-foreground">Resuming…</span>
+            <span className="text-[13px] text-ink2">Resuming…</span>
           ) : (
             <CancelButton onClick={() => void cancel(true)} busy={busy} label="Start over" />
           )}
@@ -932,31 +931,20 @@ export function PricingView({
       busy={busy}
     />
   ) : state.result ? (
-    /* ⚠️ THE CHAT ANSWER CARD, exactly as the confirm step wears it. The priced
-       table is the same kind of thing one stage later — an ANSWER — and it was
-       the only half of this page still rendered as loose text on the page
-       background, above a 24rem scroll box of its own. One frame, no inner box:
-       the page already scrolls (the Step-1061 rule, applied to the stage it had
-       not reached). */
-    <IplResultView
-      result={state.result}
-      selected={selected}
-      onToggleOption={toggleOption}
-      onToggleAll={setAllOptions}
-      /* Step 1106 — NO Total on this stage (operator's call). The figure, the
-         coverage and its guards live on the Price step, list beside net; the
-         discount ask stands where the row stood. */
-      total={false}
-      className="flex flex-col gap-3 rounded-card border border-hairline bg-card px-4 py-3 shadow-card"
-      footer={
-        /* Step 1105 — the ask under the list, where the Total was (Step 1106).
-           The ask says the price lists carry discount references and takes a
-           typed name; a name that resolves STORES it and opens the Price step
-           on it. Step 1107 (the operator's draft): the ask takes the FULL
-           width — the box across the row, Apply at its right — and Next sits
-           on its own row under a divider. On a run without groups the ask
-           renders nothing and Next sits alone, as it did at Step 1104. */
-        <div className="flex flex-col gap-3 border-hairline border-t pt-2">
+    /* The canvas's Match board: tiles, the line table (No-match rows in warn), the discount ask
+       in its own card, and one pill to the Price stage. Step 1106 — NO Total on this stage. */
+    <>
+      <Tiles tiles={matchTiles(state.result)} />
+      <MatchTable
+        result={state.result}
+        selected={selected}
+        onToggleOption={toggleOption}
+        onToggleAll={setAllOptions}
+      />
+      {/* Step 1105 — who the discount is for, asked under the list; a name that resolves STORES
+          it and opens the Price stage on it. Renders nothing on a run without groups. */}
+      {groupsOnRun.length > 0 ? (
+        <div className="rounded-list bg-card px-5 py-4 shadow-card">
           <DiscountPrompt
             docId={docId}
             groups={groupsOnRun}
@@ -964,8 +952,7 @@ export function PricingView({
             discountClient={discountClient}
             onApplied={(name, client, sourceFile) => {
               setDiscountClient(name);
-              // Step 1117 (L6) — the server resolved the row; price on it now,
-              // without a second load.
+              // Step 1117 (L6) — the server resolved the row; price on it now.
               discountTables.apply(client, sourceFile);
               setView(3);
             }}
@@ -977,94 +964,123 @@ export function PricingView({
             onReload={discountTables.reload}
             strings={strings}
           />
-          {/* Step 1104 — the way forward, where the Extract step's own Next sits.
-              ⚠️ IT SETS THE VIEW DIRECTLY, unlike stage 1's, and the difference is
-              the point of the 1095 rule rather than a breach of it: that button
-              starts a PAID run the server may refuse, so the view had to follow the
-              run. This one runs nothing — the Price step is a view over the ticks
-              and the discount table — so there is nothing that could refuse it.
-              ⚠️ IT STAYS UNDER THE ASK, and is the ONLY way forward: the Price
-              step is reachable at list prices too, a run with no table has nothing
-              else, and an applied client needs no second button to the same place.
-              The divider above it is drawn only when the ask is on screen — with
-              no ask there is nothing to divide from. */}
-          <div
-            className={cn(
-              "flex justify-end",
-              groupsOnRun.length > 0 && "border-hairline border-t pt-2",
-            )}
-          >
-            <button
-              type="button"
-              onClick={() => setView(3)}
-              className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md bg-info px-4 text-sm font-medium text-white transition-opacity hover:opacity-90"
-            >
-              Next &gt;
-            </button>
-          </div>
         </div>
-      }
-    />
+      ) : null}
+      {/* Step 1104 — the one way forward. ⚠️ It sets the view directly: the Price stage runs
+          nothing, so nothing can refuse it (unlike stage 1's paid run). */}
+      <StageAction
+        note={
+          discountClient
+            ? `Priced for ${discountClient}.`
+            : groupsOnRun.length > 0
+              ? "List prices unless you choose a client above."
+              : "List prices from your price lists."
+        }
+      >
+        {downloads(false)}
+        <button type="button" onClick={() => setView(3)} className={PILL}>
+          {(() => {
+            const n = pricedLineCount(state.result, selected);
+            return `Price ${n} ${n === 1 ? "line" : "lines"}`;
+          })()}
+        </button>
+      </StageAction>
+    </>
   ) : null;
 
   /**
    * STAGE 3 — Price. The ticked options priced for one client. See
    * `DiscountPanel` for what it is and why every figure is view-time.
    */
-  const pricePanel =
-    state.result && state.result.items.length > 0 ? (
-      <DiscountPanel
+  /** The sheet download, beside each stage's action (the export follows the ticks, so what you
+   *  download is what you are looking at). Step 1110 — on the Price stage it is the discounted
+   *  sheet; on Match, the plain one. */
+  function downloads(onPrice: boolean) {
+    if (!state.result || state.result.items.length === 0 || state.status !== "complete") return null;
+    return (
+      <IplDownloads
         result={state.result}
         selected={selected}
-        discountClient={discountClient}
-        tables={discountTables.tables}
-        onReload={discountTables.reload}
-        className="rounded-card border border-hairline bg-card px-4 py-3 shadow-card"
-        /* Step 1110 — the way out of the last stage: the priced list written
-           into one of the user's templates (or a plain default). The XLS that
-           stood here moved out to the Source row below, like every other
-           stage's. */
-        footer={<TemplateExportButton docId={docId} selected={selected} client={discountClient} />}
+        fileBase={state.sourceFilename}
+        discount={onPrice ? exportDiscount : undefined}
+        className="mt-0! shrink-0"
       />
+    );
+  }
+
+  /** The client the Price stage prices for: the stored name's row, once the table has it
+   *  (`DiscountPanel`'s rule — a name the table no longer knows prices at list). */
+  const priceClient: DiscountClient | null =
+    discountClient && discountTables.tables.kind === "loaded" ? discountTables.tables.client : null;
+  const tablesState = discountTables.tables;
+  const pricePanel =
+    state.result && state.result.items.length > 0 ? (
+      <>
+        <Tiles tiles={priceTiles(state.result, selected, priceClient)} />
+        {/* Every state a reader must not miss (sebtember's DiscountPanel, Step 1112): the table
+            loading, failed, or a stored name it no longer knows. */}
+        {tablesState.kind === "loading" && discountClient ? (
+          <StatusLine label="Looking for a discount table in your catalogues…" />
+        ) : tablesState.kind === "error" ? (
+          <p className="flex items-center gap-3 text-[15px] text-danger">
+            {tablesState.message}
+            <button type="button" onClick={discountTables.reload} className={PILL_QUIET}>
+              Look again
+            </button>
+          </p>
+        ) : discountClient && !priceClient && tablesState.kind === "loaded" ? (
+          <p className="flex flex-wrap items-center gap-3 text-[15px] text-warn">
+            &ldquo;{discountClient}&rdquo; is not in the discount table any more. Prices below are
+            list prices.
+            <button type="button" onClick={discountTables.reload} className={PILL_QUIET}>
+              Look again
+            </button>
+          </p>
+        ) : null}
+        <PriceTable
+          result={state.result}
+          selected={selected}
+          client={priceClient}
+          /* Step 1110 — the priced list written into one of the user's templates. */
+          footer={
+            <StageAction>
+              {downloads(true)}
+              <TemplateExportButton docId={docId} selected={selected} client={discountClient} />
+            </StageAction>
+          }
+        />
+      </>
     ) : null;
 
-  /**
-   * Step 1110 — the Price step's sheet, for the Source row: the beneficiary's
-   * row as the page's one load of the table resolved it (the SAME row the
-   * panel prices on — Step 1117 moved that resolution to the server), so the
-   * sheet the row downloads is the sheet the card shows. Absent on the Match
-   * step, whose sheet is unchanged.
-   */
-  const exportDiscount = useMemo<IplExportDiscount>(() => {
-    const t = discountTables.tables;
-    if (!discountClient || t.kind !== "loaded" || !t.client)
-      return { client: null, sourceFile: "" };
-    return { client: t.client, sourceFile: t.sourceFile };
-  }, [discountClient, discountTables.tables]);
 
   return (
     <>
-      {/* Plugent's run header, as every agent page wears it. */}
-      <header className="flex items-center gap-3 border-hair border-b-[0.5px] px-4 py-3.5 min-[600px]:px-8">
+      {/* Plugent's run header, as every agent page wears it, with the stages as a pill switch on
+          its right (the canvas's Pricing board). ⚠️ OUTSIDE THE SCROLLER, so a long list cannot
+          scroll the only way back to the result away. */}
+      <header className="flex flex-wrap items-center gap-3 border-hair border-b-[0.5px] px-4 py-3.5 min-[600px]:px-8">
         <AgentIcon agent={agent} />
-        <div className="flex min-w-0 flex-col">
+        <div className="flex min-w-0 flex-1 flex-col">
           <h1 className="truncate text-[17px] font-bold">{title}</h1>
-          <p className="text-[13px] text-ink2">
+          <p className="truncate text-[13px] text-ink2">
             Pricing
-            {state.tokensUsed > 0 && ` · ${state.tokensUsed.toLocaleString("en-US")} tokens`}
+            {state.sourceFilename && state.sourceFilename !== title
+              ? ` · ${state.sourceFilename}`
+              : ""}
+            {state.tokensUsed > 0 && ` · ${state.tokensUsed.toLocaleString("en-US")} tokens so far`}
           </p>
         </div>
+        {isBlank ? null : (
+          <StageTabs
+            current={view}
+            reached={reached}
+            running={state.status === "matching"}
+            onSelect={setView}
+            /* On a phone the switch takes its own row under the title, so the title can be read. */
+            className="max-[599px]:w-full"
+          />
+        )}
       </header>
-
-      {/* ⚠️ OUTSIDE THE SCROLLER, so a 158-line confirm list cannot scroll the
-          only way back to the result away. It is navigation, and navigation that
-          leaves the screen is a control the user has to hunt for. */}
-      <PricingSteps
-        current={view}
-        reached={reached}
-        running={state.status === "matching"}
-        onSelect={setView}
-      />
 
       {/* BLANK — nothing uploaded, so the one control IS the page and sits in
           the middle of it (the Step-943/944 rule: just the control, no intro
@@ -1091,8 +1107,8 @@ export function PricingView({
           )}
         </div>
       ) : (
-        <div className="no-scrollbar flex-1 overflow-y-auto px-4 py-4">
-          <div className="mx-auto flex max-w-3xl flex-col gap-3">
+        <div className="no-scrollbar flex-1 overflow-y-auto px-4 py-6 min-[600px]:px-8">
+          <div className="mx-auto flex max-w-[1040px] flex-col gap-4">
             {/* ⚠️ NO FILENAME LINE (operator's call, Step 1096). It sat above
                 the card on every stage and named a file the user had just
                 uploaded — the header already carries the pricing's title, which
@@ -1135,9 +1151,10 @@ export function PricingView({
                 reason ("the footer's left column collapses, letting the copy
                 button sit alone on the right"). */}
             {(view === 2 || view === 3) &&
-            (state.contentOwners.length > 0 ||
-              (state.result !== null && state.result.items.length > 0)) &&
-            (state.status === "complete" || stale) ? (
+            state.status !== "complete" &&
+            stale &&
+            state.result !== null &&
+            state.result.items.length > 0 ? (
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                 {/* The run's token-spend line (Step 1117 audit L4 — "This run:
                     N tokens") was REMOVED by operator decision: no token-usage

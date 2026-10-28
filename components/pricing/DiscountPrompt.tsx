@@ -278,12 +278,12 @@ export function DiscountPrompt({
             placeholder={t("pricing_discount__placeholder")}
             aria-label={t("pricing_discount__aria")}
             autoComplete="off"
-            className="h-8 min-w-0 flex-1 rounded-md border border-hairline bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="h-11 min-w-0 flex-1 rounded-control bg-fill1 px-4 text-[15px] text-ink placeholder:text-ink2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-act"
           />
           <button
             type="submit"
             disabled={busy || typed.trim().length === 0}
-            className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md bg-info px-6 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-full bg-act px-6 text-[15px] font-bold text-white hover:bg-act-press disabled:opacity-50"
           >
             {busy ? <Loader2Icon className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
             {t("pricing_discount__apply")}
@@ -326,7 +326,7 @@ export function DiscountPrompt({
                   key={name}
                   type="button"
                   onClick={() => void apply(name)}
-                  className="rounded-md border border-hairline bg-background px-2 py-0.5 text-foreground hover:bg-muted"
+                  className="rounded-full bg-fill2 px-3 py-1 font-semibold text-ink hover:bg-sel hover:text-link"
                 >
                   {name}
                 </button>

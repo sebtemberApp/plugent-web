@@ -23,7 +23,6 @@
 import { FileSpreadsheetIcon, Loader2Icon } from "lucide-react";
 import { useRef, useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
-import { iconButtonClass } from "@/components/ui/icon-button";
 import {
   countNotSearched,
   defaultSelection,
@@ -135,8 +134,7 @@ export function ExportButton({
       type="button"
       onClick={onClick}
       className={cn(
-        iconButtonClass(),
-        "inline-flex h-8 w-auto items-center gap-1.5 rounded-md px-2.5 text-xs font-medium",
+        "inline-flex h-9 w-auto items-center gap-1.5 rounded-full bg-fill2 px-4 text-[13px] font-semibold text-ink hover:bg-sel hover:text-link",
       )}
     >
       {icon}
@@ -147,8 +145,11 @@ export function ExportButton({
 
 export function StatusLine({ label }: { label: string }) {
   return (
-    <div className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
-      <Loader2Icon className="h-4 w-4 animate-spin" aria-hidden="true" />
+    <div
+      className="flex items-center gap-2.5 rounded-list bg-card px-5 py-4 text-[15px] text-ink2 shadow-card"
+      role="status"
+    >
+      <Loader2Icon className="h-4 w-4 animate-spin text-act" aria-hidden="true" />
       <span>{label}</span>
     </div>
   );
@@ -1395,7 +1396,7 @@ export function CancelButton({
       type="button"
       onClick={onClick}
       disabled={busy}
-      className="inline-flex h-8 items-center justify-center rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+      className="inline-flex h-9 items-center justify-center rounded-full bg-fill2 px-4 text-[13px] font-semibold text-ink transition-colors hover:bg-sel hover:text-link disabled:opacity-50"
     >
       {label}
     </button>
@@ -1414,8 +1415,8 @@ export function Dismissable({
   destructive?: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-2">
-      <p className={cn("text-sm", destructive ? "text-destructive" : "text-muted-foreground")}>
+    <div className="flex flex-col gap-3 rounded-list bg-card px-5 py-4 shadow-card">
+      <p className={cn("text-[15px] leading-[22px]", destructive ? "text-danger" : "text-ink2")}>
         {text}
       </p>
       <div className="flex justify-end">

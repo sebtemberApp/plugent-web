@@ -89,9 +89,9 @@ export function GatherProgressView({
           : "Reading your file…";
 
   return (
-    <div className="flex flex-col gap-2 rounded-card border border-hairline bg-card px-4 py-3 shadow-card">
+    <div className="flex flex-col gap-2 rounded-list bg-card px-5 py-4 shadow-card">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-subhead text-foreground">{headline}</span>
+        <span className="text-[15px] font-semibold text-ink">{headline}</span>
         {eta !== null ? (
           <span className="shrink-0 text-footnote text-muted-foreground tabular-nums">{eta}</span>
         ) : null}
@@ -102,9 +102,9 @@ export function GatherProgressView({
           indeterminate track — a bar stuck at 0% is the exact impression this
           replaces. */}
       {pct !== null ? (
-        <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-fill2">
           <div
-            className="h-full rounded-full bg-info transition-all duration-500"
+            className="h-full rounded-full bg-act transition-all duration-500"
             style={{ width: `${pct}%` }}
           />
         </div>
