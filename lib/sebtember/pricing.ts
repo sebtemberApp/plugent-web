@@ -53,7 +53,7 @@ export interface PricingRun {
   gather_stopped_early?: unknown;
   /** COMPLETE: every price list; Plugent filters at view time, as sebtember does. */
   result: IplResult | null;
-  contentOwners?: Array<{ uid: string; name: string; isSelf: boolean }>;
+  contentOwners?: Array<{ name: string | null; isSelf: boolean }>;
   tokensUsed: number;
   error?: string | null;
   continue_needed?: boolean;
@@ -65,6 +65,8 @@ export interface PricingRun {
 export interface PricingStepResult extends PricingRun {
   charged?: PricingCharge;
   balanceAfter?: number | null;
+  /** The charged lines' model usage — sebtember sends it BESIDE `charged`, not inside it. */
+  usage?: ChargeUsage[];
 }
 
 export interface PricingUpload {

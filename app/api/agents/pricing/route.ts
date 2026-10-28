@@ -60,7 +60,8 @@ async function keepCharge(
 ) {
   const c = result.charged;
   if (!c || c.tokens <= 0 || c.duplicate) return;
-  await recordPricingCharge(uid, runId, step, lineId, c).catch((err) =>
+  const usage = result.usage ?? c.usage;
+  await recordPricingCharge(uid, runId, step, lineId, { tokens: c.tokens, usage }).catch((err) =>
     console.error(`[pricing] charge record failed run=${runId} line=${lineId}`, err),
   );
 }
