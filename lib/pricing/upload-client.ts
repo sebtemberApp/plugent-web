@@ -50,7 +50,9 @@ export async function uploadPricingFile(file: File): Promise<{ runId: string }> 
   }
   const put = await fetch(data.upload.url, {
     method: data.upload.method || "PUT",
-    headers: { "content-type": mimeType, ...(data.upload.headers ?? {}) },
+    // ⚠️ The signed URL's OWN headers, exactly as given: it signs `Content-Type`, and adding our own
+    // `content-type` beside it made the browser send the value twice, joined ("a, a") — a 403.
+    headers: data.upload.headers ?? { "content-type": mimeType },
     body: file,
   });
   if (!put.ok) throw new PricingUploadError("Couldn't upload that file.");
