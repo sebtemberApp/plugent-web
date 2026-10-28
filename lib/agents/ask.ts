@@ -473,7 +473,8 @@ export async function runAsk(
   const split = splitSources(text);
   // Sebtember's backstop: a file name cited in the prose goes; the cards carry it.
   const answer = stripInlineFilenames(split.answer);
-  const used = split.used;
+  // A stopped answer never reached its SOURCES line: it cites nothing rather than every passage.
+  const used = stopped ? (split.used ?? []) : split.used;
   return {
     kind: "answer",
     answer,
