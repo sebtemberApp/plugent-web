@@ -34,8 +34,8 @@ import { cn } from "@/lib/utils";
 
 /** Shape + rest colour + the blue hover fill + focus ring. No size — see above. */
 export const ICON_BUTTON_CLASS =
-  "inline-flex shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors " +
-  "hover:bg-info hover:text-white dark:hover:bg-info dark:hover:text-white " +
+  "inline-flex shrink-0 items-center justify-center rounded-chip text-muted-foreground transition-colors " +
+  "hover:bg-info hover:text-white " +
   "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 /** Compose the canonical treatment with per-call extras (size, positioning). */

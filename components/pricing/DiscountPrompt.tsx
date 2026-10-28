@@ -257,7 +257,7 @@ export function DiscountPrompt({
           <span className="font-semibold">{t("pricing_discount__ask_instruction")}</span>
         </p>
         {discountClient && !applied ? (
-          <p className="text-footnote text-amber-600 dark:text-amber-400">
+          <p className="text-footnote text-warn">
             {t("pricing_discount__stale", { name: discountClient })}
           </p>
         ) : null}
@@ -309,11 +309,7 @@ export function DiscountPrompt({
         ) : null}
         {ask ? (
           <div className="flex flex-col gap-1 text-footnote">
-            <span
-              className={cn(
-                ask.kind === "none" ? "text-amber-600 dark:text-amber-400" : "text-foreground",
-              )}
-            >
+            <span className={cn(ask.kind === "none" ? "text-warn" : "text-foreground")}>
               {ask.kind === "ambiguous"
                 ? t("pricing_discount__ambiguous", { typed: ask.typed })
                 : ask.kind === "short"
@@ -347,7 +343,7 @@ function ReloadButton({ onClick, t }: { onClick: () => void; t: (key: string) =>
     <button
       type="button"
       onClick={onClick}
-      className={cn(iconButtonClass(), "h-8 w-8 shrink-0 rounded-md")}
+      className={cn(iconButtonClass(), "h-8 w-8 shrink-0 rounded-chip")}
       title={t("pricing_discount__reload_title")}
       aria-label={t("pricing_discount__reload_aria")}
     >

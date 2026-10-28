@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
+/* `dark:` follows the theme the tokens follow: the account menu's pinned theme (`data-theme`),
+   else the system setting. Tailwind's default reads only the system setting, so a user who
+   pinned Light on a dark OS would get dark utilities beside light tokens. */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *) {
+      @slot;
+    }
+  }
+}
+
 /*
  * Plugent's tokens (the design canvas, PeakPick's language): layers, not outlines.
  * ⚠️ PINK IS THE ACTION COLOUR — a fill is #E0004D in both themes (white text ≈ 4.9:1;
@@ -28,6 +42,8 @@
   --shadow-pop: 0 0 0 0.5px rgba(22, 21, 46, 0.08), 0 12px 32px rgba(22, 21, 46, 0.16);
   --a-chat: #1177b9;
   --a-ts: #c24a3a;
+  /* Text on a filled agent accent: white on the light accents, page-dark on the dark ones. */
+  --on-accent: #ffffff;
   --a-spec: #2f7d46;
   --a-quo: #6e56cf;
   --a-price: #a23b72;
@@ -59,6 +75,7 @@
     --shadow-pop: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 12px 32px rgba(0, 0, 0, 0.5);
     --a-chat: #8dbde6;
     --a-ts: #e8907e;
+    --on-accent: #09090f;
     --a-spec: #7fcb97;
     --a-quo: #b4a5f0;
     --a-price: #e58ab8;
@@ -89,6 +106,7 @@
   --shadow-pop: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 12px 32px rgba(0, 0, 0, 0.5);
   --a-chat: #8dbde6;
   --a-ts: #e8907e;
+  --on-accent: #09090f;
   --a-spec: #7fcb97;
   --a-quo: #b4a5f0;
   --a-price: #e58ab8;
@@ -118,6 +136,7 @@
   --color-warn: var(--warn);
   --color-a-chat: var(--a-chat);
   --color-a-ts: var(--a-ts);
+  --color-on-accent: var(--on-accent);
   --color-a-spec: var(--a-spec);
   --color-a-quo: var(--a-quo);
   --color-a-price: var(--a-price);

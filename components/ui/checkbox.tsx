@@ -85,7 +85,7 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
         <span
           aria-hidden="true"
           className={cn(
-            "flex h-full w-full items-center justify-center rounded-md",
+            "flex h-full w-full items-center justify-center rounded-chip",
             "border border-foreground/55 bg-card",
             "shadow-[0_1px_1px_rgba(22,21,46,0.04)]",
             "transition-[background-color,border-color,box-shadow] duration-150",

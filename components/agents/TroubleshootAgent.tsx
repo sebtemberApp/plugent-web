@@ -17,6 +17,7 @@ import type { TsState, TsTurn } from "@/lib/runs";
 import { AgentError } from "./AgentError";
 import { AnswerFooter, ownersOf, SourceCard } from "./ChatAgent";
 import { MicButton } from "./MicButton";
+import { scrollToEnd } from "./scroll";
 
 const agent = agentById("troubleshooting");
 const MAX_STEPS = 8;
@@ -87,7 +88,6 @@ export function TroubleshootAgent({
   const [pending, setPending] = useState<Pending>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const end = useRef<HTMLDivElement>(null);
   // Which run the page shows, as a count: it moves when another run is opened here and when the
   // page goes away, so a reply that lands after that cannot take over the URL (audit B1).
   const shown = useRef(0);
@@ -119,7 +119,7 @@ export function TroubleshootAgent({
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on every new turn
   useEffect(() => {
-    end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    scrollToEnd("smooth");
   }, [turns, pending]);
 
   const busy = pending !== null;
@@ -277,7 +277,6 @@ export function TroubleshootAgent({
             onRetry={lastSent.current ? () => send(lastSent.current ?? {}) : undefined}
           />
         )}
-        <div ref={end} />
       </div>
 
       <div className="sticky bottom-0 mx-auto w-full max-w-[820px] bg-gradient-to-t from-page from-70% to-transparent px-4 pt-3 pb-4 min-[600px]:px-8 min-[600px]:pb-6">
@@ -560,7 +559,7 @@ function TurnView({
     <article className="flex flex-col gap-3 rounded-card bg-card px-6 py-5 shadow-card">
       <div className="flex items-center gap-2.5">
         {turn.result === "resolved" ? (
-          <span className="flex size-7 items-center justify-center rounded-full bg-ok text-white">
+          <span className="flex size-7 items-center justify-center rounded-full bg-ok text-on-accent">
             <Check aria-hidden size={16} strokeWidth={2.4} />
           </span>
         ) : (
@@ -590,7 +589,7 @@ function StepNumber({ n, done = false }: { n: number; done?: boolean }) {
   return (
     <span
       className={`flex size-7 shrink-0 items-center justify-center rounded-full text-[14px] font-bold ${
-        done ? "bg-card text-ink2" : "bg-a-ts text-white"
+        done ? "bg-card text-ink2" : "bg-a-ts text-on-accent"
       }`}
     >
       {n}

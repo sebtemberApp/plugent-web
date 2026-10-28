@@ -40,6 +40,9 @@ built like PeakPick. It NEVER reads sebtember's Firestore or vectors directly. T
   own: `PricingView` + `PricingTables` (the canvas's Pricing board: stage tabs in the header, tiles, one table per
   stage, one pill action), and the copied parts wear Plugent's classes.
   ⚠️ A new `[[...run]]` param REMOUNTS the page — the URL moves only once the read is back.
+- ⚠️ **COLOURS ARE TOKENS, AND `dark:` FOLLOWS THE PINNED THEME** — `app/globals.css` redefines Tailwind's `dark`
+  variant on `data-theme`, then the system setting, as the tokens are. Use `text-warn` / `text-ok` / `text-on-accent`,
+  never a palette colour (`amber-600`); radii are `rounded-chip|control|inner|list|card`, never `rounded-md`.
 
 ## Environments
 `main` → Production → `sebtember-app` login, `https://sebtember.app`; `dev` → Preview → `sebtember-app-dev`,

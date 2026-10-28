@@ -17,6 +17,7 @@ import { ChatOutline, outlineTitle, turnAnchor } from "./ChatOutline";
 import { MicButton } from "./MicButton";
 import { ModePicker } from "./ModePicker";
 import { ShareButton } from "./ShareButton";
+import { scrollToEnd } from "./scroll";
 
 export type Source = {
   n: number;
@@ -221,7 +222,6 @@ export function ChatAgent({
     setTitle(initialTitle);
     setTurns(fromStored(initialTurns));
   }, [initialRunId, initialTitle]);
-  const end = useRef<HTMLDivElement>(null);
   const lastKind = turns.at(-1)?.state.kind;
   const busy = lastKind === "pending" || lastKind === "streaming";
   // The streaming answer's Stop id (`/api/agents/ask/stop`); null when nothing can be stopped.
@@ -231,7 +231,7 @@ export function ChatAgent({
   const shape = turns.map((t) => `${t.id}:${t.state.kind}`).join(",");
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on every new turn or answer
   useEffect(() => {
-    end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    scrollToEnd("smooth");
   }, [shape]);
   // While an answer streams in, the page follows it only if the reader is at the end already,
   // so scrolling up to read is never pulled back down.
@@ -240,7 +240,7 @@ export function ChatAgent({
   useEffect(() => {
     if (!streamedLength) return;
     const gap = document.documentElement.scrollHeight - window.innerHeight - window.scrollY;
-    if (gap < 240) end.current?.scrollIntoView({ behavior: "auto", block: "end" });
+    if (gap < 240) scrollToEnd("auto");
   }, [streamedLength]);
 
   /** Sends the composer's text, or `picked`: a clarifying question's chip. */
@@ -418,7 +418,6 @@ export function ChatAgent({
               sourceCards={ui.sourceCards}
             />
           ))}
-          <div ref={end} />
         </div>
       </div>
       <div className="sticky bottom-0 mx-auto w-full max-w-[820px] bg-gradient-to-t from-page from-70% to-transparent px-4 pt-3 pb-4 min-[600px]:px-8 min-[600px]:pb-6">

@@ -144,7 +144,7 @@ export function DiscountPanel({
         </span>
       ) : discountClient && !client ? (
         // The stored name no longer resolves — the table changed under it.
-        <span className="flex items-center gap-2 text-footnote text-amber-600 dark:text-amber-400">
+        <span className="flex items-center gap-2 text-footnote text-warn">
           <span>
             &ldquo;{discountClient}&rdquo; is not in the discount table any more — prices below are
             list prices.
@@ -194,7 +194,7 @@ export function DiscountPanel({
                   discount on {summary.applied}/{pricedRows} rows
                   {uncoveredRows > 0 ? (
                     <span
-                      className="text-amber-600 dark:text-amber-400"
+                      className="text-warn"
                       title={`Groups not in the table for this client: ${[...summary.uncovered.keys()].join(", ")}. Add them to the discount table to price these rows.`}
                     >
                       {" "}
@@ -213,7 +213,7 @@ export function DiscountPanel({
               )}
               {guards.labels.length > 1 ? (
                 <span
-                  className="text-amber-600 dark:text-amber-400"
+                  className="text-warn"
                   title={`This figure mixes columns that mean different things: ${guards.labels.join(", ")}.`}
                 >
                   {" "}
@@ -293,7 +293,7 @@ function DiscountLine({
           <span className="no-scrollbar flex items-baseline gap-2 overflow-x-auto text-muted-foreground">
             {note ? (
               <span
-                className="inline-flex w-4 shrink-0 items-center self-center text-amber-600 dark:text-amber-400"
+                className="inline-flex w-4 shrink-0 items-center self-center text-warn"
                 title={note}
                 aria-label={note}
                 role="img"
@@ -341,7 +341,7 @@ function ReloadButton({ onClick }: { onClick: () => void }) {
     <button
       type="button"
       onClick={onClick}
-      className={cn(iconButtonClass(), "h-8 w-8 shrink-0 rounded-md")}
+      className={cn(iconButtonClass(), "h-8 w-8 shrink-0 rounded-chip")}
       title="Look for the discount table again — after adding groups or clients to it."
       aria-label="Reload the discount table"
     >

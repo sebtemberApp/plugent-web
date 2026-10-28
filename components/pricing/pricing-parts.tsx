@@ -545,7 +545,7 @@ export function CoverageNote({
       ) : null}
       {gaps.length > 0 ? (
         <span
-          className="text-amber-600 dark:text-amber-400"
+          className="text-warn"
           title="Your document numbers these rows, but they are not in the list. They may be absent from the file, or missed while reading it."
         >
           {" "}
@@ -560,7 +560,7 @@ export function CoverageNote({
           later. It renders only when it says something the count did not. */}
       {coverage.shortfall && coverage.shortfall.expected !== coverage.totalCount ? (
         <span
-          className="text-amber-600 dark:text-amber-400"
+          className="text-warn"
           title="Your document appears to declare more purchasable rows than were read. Re-running usually picks up the rest; if it does not, the file may need splitting."
         >
           {" "}
@@ -575,7 +575,7 @@ export function CoverageNote({
           about the file, and nothing else on this card would say so. */}
       {coverage.stoppedEarly ? (
         <span
-          className="text-amber-600 dark:text-amber-400"
+          className="text-warn"
           title="Reading stopped at a time limit before the whole file was covered, so the counts above describe only the part that was read. Split the file into smaller uploads to cover the rest."
         >
           {" "}
@@ -598,7 +598,7 @@ export function CoverageNote({
           tooltip says it plainly instead of inventing a distinction. */}
       {itemsSizeCut && itemsSizeCut > 0 ? (
         <span
-          className="text-amber-600 dark:text-amber-400"
+          className="text-warn"
           title="These lines were read from your document but were too large to store with the run, so they are not in this list, will not be priced, and are not in the export. Split the file into smaller uploads to keep them all."
         >
           {" "}
@@ -655,7 +655,7 @@ function NoMatchCell({ item, compact }: { item: IplResultItem; compact?: boolean
   return (
     <span
       className={cn(
-        amber ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground",
+        amber ? "text-warn" : "text-muted-foreground",
         compact ? "" : "flex items-baseline gap-2 text-footnote",
       )}
       title={NO_MATCH_TITLE[kind]}
@@ -818,7 +818,7 @@ export function IplResultView({
              "Not found" and rendered like a product the corpus lacks. Amber,
              because unlike a genuine no-match this one is ours to fix. */
             <span
-              className="text-amber-600 dark:text-amber-400"
+              className="text-warn"
               title="Retrieval returned nothing for these lines, even after a retry — that is a search failure, not evidence the products are unavailable. Run the pricing again."
             >
               {notSearched} not searched
@@ -1227,7 +1227,7 @@ function UnpricedSummary({ items }: { items: IplResultItem[] }) {
         <span>
           {items.length} {items.length === 1 ? "line" : "lines"} found no price
           {notSearched > 0 ? (
-            <span className="text-amber-600 dark:text-amber-400">
+            <span className="text-warn">
               {" "}
               - {notSearched} {notSearched === 1 ? "was" : "were"} not searched
             </span>
@@ -1282,7 +1282,7 @@ function SelectionTotal({ summary, locale }: { summary: IplSelectionSummary; loc
         {summary.priced}/{summary.total} priced
         {summary.labels.length > 1 ? (
           <span
-            className="text-amber-600 dark:text-amber-400"
+            className="text-warn"
             title={`This figure mixes columns that mean different things: ${summary.labels.join(", ")}.`}
           >
             {" "}
@@ -1367,14 +1367,7 @@ function Stat({
     <span title={title}>
       <span className="text-muted-foreground">{label}: </span>
       <span
-        className={cn(
-          "font-semibold",
-          accent
-            ? "text-emerald-600 dark:text-emerald-400"
-            : warn
-              ? "text-amber-600 dark:text-amber-400"
-              : "text-foreground",
-        )}
+        className={cn("font-semibold", accent ? "text-ok" : warn ? "text-warn" : "text-foreground")}
       >
         {value}
       </span>
