@@ -15,6 +15,7 @@ import { AgentError } from "./AgentError";
 import { AnswerText } from "./AnswerText";
 import { ChatOutline, outlineTitle, turnAnchor } from "./ChatOutline";
 import { ModePicker } from "./ModePicker";
+import { ShareButton } from "./ShareButton";
 
 export type Source = {
   n: number;
@@ -660,6 +661,7 @@ export function AnswerFooter({
         >
           <MessageSquareText aria-hidden size={18} />
         </button>
+        {copy && runId && <ShareButton runId={runId} answer={answer} />}
         {copy && (
           <button
             type="button"
