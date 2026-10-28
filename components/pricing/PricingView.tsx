@@ -996,7 +996,8 @@ export function PricingView({
    *  download is what you are looking at). Step 1110 — on the Price stage it is the discounted
    *  sheet; on Match, the plain one. */
   function downloads(onPrice: boolean) {
-    if (!state.result || state.result.items.length === 0 || state.status !== "complete") return null;
+    if (!state.result || state.result.items.length === 0 || state.status !== "complete")
+      return null;
     return (
       <IplDownloads
         result={state.result}
@@ -1051,7 +1052,6 @@ export function PricingView({
         />
       </>
     ) : null;
-
 
   return (
     <>
