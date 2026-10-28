@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, BookOpen, Check, Copy, MessageSquareText } from "lucide-react";
+import { ArrowUp, BookOpen, Check, Copy, MessageSquareText, Square } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, useTransition } from "react";
@@ -50,6 +50,8 @@ type Turn = {
   question: string;
   state:
     | { kind: "pending"; deep: boolean }
+    /** The answer as it streams in (Chat); `stopping` once Stop was pressed. */
+    | { kind: "streaming"; text: string; stopping: boolean }
     | {
         kind: "answer";
         answer: string;
@@ -58,6 +60,8 @@ type Turn = {
         charged: boolean;
         /** Chat asked a clarifying question (`answer` is the question): its chips. */
         clarify?: { question: string; options: string[] };
+        /** Stopped by the user on this page: `answer` is what was written until then. */
+        stopped?: boolean;
       }
     | { kind: "not_covered"; tokens: number }
     | { kind: "error"; code: string };
@@ -218,12 +222,26 @@ export function ChatAgent({
     setTurns(fromStored(initialTurns));
   }, [initialRunId, initialTitle]);
   const end = useRef<HTMLDivElement>(null);
-  const busy = turns.at(-1)?.state.kind === "pending";
+  const lastKind = turns.at(-1)?.state.kind;
+  const busy = lastKind === "pending" || lastKind === "streaming";
+  // The streaming answer's Stop id (`/api/agents/ask/stop`); null when nothing can be stopped.
+  const [stopId, setStopId] = useState<string | null>(null);
 
+  // A new turn, or a turn that changed state (pending → streaming → answer), scrolls to the end.
+  const shape = turns.map((t) => `${t.id}:${t.state.kind}`).join(",");
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on every new turn or answer
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [turns]);
+  }, [shape]);
+  // While an answer streams in, the page follows it only if the reader is at the end already,
+  // so scrolling up to read is never pulled back down.
+  const streamed = turns.at(-1)?.state.kind === "streaming" ? turns.at(-1)?.state : null;
+  const streamedLength = streamed && "text" in streamed ? streamed.text.length : 0;
+  useEffect(() => {
+    if (!streamedLength) return;
+    const gap = document.documentElement.scrollHeight - window.innerHeight - window.scrollY;
+    if (gap < 240) end.current?.scrollIntoView({ behavior: "auto", block: "end" });
+  }, [streamedLength]);
 
   /** Sends the composer's text, or `picked`: a clarifying question's chip. */
   async function ask(picked?: string) {
@@ -235,6 +253,7 @@ export function ChatAgent({
       { id, question: q, state: { kind: "pending", deep: ui.modes && mode === "deep" } },
     ]);
     if (picked === undefined) setQuestion("");
+    setStopId(null);
     const view = shown.current;
     const settle = (state: Turn["state"], storedId?: unknown) =>
       setTurns((t) =>
@@ -250,15 +269,37 @@ export function ChatAgent({
         headers: { "content-type": "application/json" },
         body: JSON.stringify(ui.body(q, runId, mode)),
       });
-      const data = await res.json().catch(() => ({ error: `http_${res.status}` }));
+      const streamed = res.ok && (res.headers.get("content-type") ?? "").includes("ndjson");
+      const data = streamed
+        ? await readAnswerStream(res, {
+            onStart: (id) => shown.current === view && setStopId(id),
+            onText: (text) =>
+              shown.current === view &&
+              setTurns((t) =>
+                t.map((turn) =>
+                  turn.id === id
+                    ? {
+                        ...turn,
+                        state: {
+                          kind: "streaming",
+                          text,
+                          stopping: turn.state.kind === "streaming" && turn.state.stopping,
+                        },
+                      }
+                    : turn,
+                ),
+              ),
+          }).finally(() => shown.current === view && setStopId(null))
+        : await res.json().catch(() => ({ error: `http_${res.status}` }));
+      const ok = streamed ? data.type === "done" : res.ok;
       if (typeof data.balanceAfter === "number") spent(data.balanceAfter);
       // The user opened another run, or left, while this one worked: it is saved, so the
       // sidebar gains it, and the page stays where the user went.
       if (shown.current !== view) {
-        if (res.ok) router.refresh();
+        if (ok) router.refresh();
         return;
       }
-      if (!res.ok) return fail(String(data.error ?? res.status));
+      if (!ok) return fail(String(data.error ?? res.status));
       if (typeof data.runId === "string") {
         if (data.runId !== runId) {
           setRunId(data.runId);
@@ -276,6 +317,7 @@ export function ChatAgent({
               tokens: data.tokens,
               charged: data.charged,
               ...(data.clarify ? { clarify: data.clarify } : {}),
+              ...(data.stopped ? { stopped: true } : {}),
             }
           : { kind: "not_covered", tokens: data.tokens },
         data.turnId,
@@ -289,6 +331,23 @@ export function ChatAgent({
       settle({ kind: "error", code });
       setQuestion((current) => current || q);
     }
+  }
+
+  /** Stop: the answer ends with what it has written, and is charged and saved as that. */
+  function stopAnswer() {
+    if (!stopId) return;
+    setTurns((t) =>
+      t.map((turn, i) =>
+        i === t.length - 1 && turn.state.kind === "streaming"
+          ? { ...turn, state: { ...turn.state, stopping: true } }
+          : turn,
+      ),
+    );
+    void fetch("/api/agents/ask/stop", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ stopId }),
+    }).catch(() => {});
   }
 
   /** Asks a failed turn's question again in its place. */
@@ -408,14 +467,30 @@ export function ChatAgent({
                 disabled={busy}
                 onText={(text) => setQuestion((q) => (q.trim() ? `${q.trimEnd()} ${text}` : text))}
               />
-              <button
-                type="submit"
-                aria-label="Send"
-                disabled={busy || question.trim().length === 0}
-                className="flex size-9 items-center justify-center rounded-full bg-act text-white hover:bg-act-press disabled:opacity-40"
-              >
-                <ArrowUp aria-hidden size={18} strokeWidth={2.2} />
-              </button>
+              {busy && stopId ? (
+                <button
+                  type="button"
+                  aria-label="Stop the answer"
+                  title="Stop"
+                  onClick={stopAnswer}
+                  disabled={
+                    turns.at(-1)?.state.kind === "streaming" &&
+                    (turns.at(-1)?.state as { stopping: boolean }).stopping
+                  }
+                  className="flex size-9 items-center justify-center rounded-full bg-ink text-page hover:opacity-85 disabled:opacity-40"
+                >
+                  <Square aria-hidden size={13} fill="currentColor" strokeWidth={0} />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  aria-label="Send"
+                  disabled={busy || question.trim().length === 0}
+                  className="flex size-9 items-center justify-center rounded-full bg-act text-white hover:bg-act-press disabled:opacity-40"
+                >
+                  <ArrowUp aria-hidden size={18} strokeWidth={2.2} />
+                </button>
+              )}
             </div>
           </form>
         )}
@@ -467,6 +542,25 @@ function TurnView({
           {s.deep ? "Searching your catalogues and thinking it through…" : pending}
         </div>
       )}
+      {s.kind === "streaming" && (
+        <article
+          aria-busy="true"
+          className="flex flex-col gap-4 rounded-card bg-card px-6 py-5 shadow-card"
+        >
+          {streamingText(s.text) ? (
+            <AnswerText text={streamingText(s.text)} />
+          ) : (
+            <span className="flex items-center gap-3 text-[15px] text-ink2">
+              <span className="size-2 animate-pulse rounded-full bg-act" />
+              Writing the answer…
+            </span>
+          )}
+          <span className="flex items-center gap-2 text-[13px] text-ink2">
+            <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-act" />
+            {s.stopping ? "Stopping…" : "Writing…"}
+          </span>
+        </article>
+      )}
       {s.kind === "error" && (
         <AgentError
           code={s.code}
@@ -513,7 +607,14 @@ function TurnView({
       )}
       {s.kind === "answer" && !s.clarify && (
         <article className="flex flex-col gap-4 rounded-card bg-card px-6 py-5 shadow-card">
-          <AnswerText text={s.answer} />
+          {s.answer && <AnswerText text={s.answer} />}
+          {s.stopped && (
+            <p className="text-[13px] text-ink2">
+              {s.answer
+                ? "Stopped. Only the part written was charged."
+                : "Stopped before the answer began. Only the search was charged."}
+            </p>
+          )}
           {sourceCards && s.sources.length > 0 && (
             <div className="flex flex-col gap-2">
               <span className="text-[13px] font-semibold text-ink2">Sources</span>
@@ -538,6 +639,61 @@ function TurnView({
       )}
     </>
   );
+}
+
+/** What a streaming answer shows: the model's closing "SOURCES: …" line (the server strips it
+ *  from the saved answer, as `splitSources` does) is hidden from its first letters on. */
+function streamingText(text: string): string {
+  const lines = text.split("\n");
+  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 3); i--) {
+    const line = (lines[i] ?? "").trim().replace(/^\*+/, "").toUpperCase();
+    const isLast = i === lines.length - 1;
+    // The finished line, or (while it is still being written) a beginning of "SOURCES".
+    if (/^SOURCES\b/.test(line) || (isLast && line.length >= 3 && "SOURCES".startsWith(line))) {
+      return lines.slice(0, i).join("\n").trimEnd();
+    }
+  }
+  return text.trimEnd();
+}
+
+/**
+ * Reads `/api/agents/ask`'s NDJSON stream (audit F5): the Stop id, then the answer's text as
+ * it grows, then the last event (`done` or `error`), which is returned as the JSON answer was.
+ */
+async function readAnswerStream(
+  res: Response,
+  on: { onStart: (stopId: string) => void; onText: (text: string) => void },
+): Promise<Record<string, unknown> & { type?: string; error?: unknown }> {
+  const reader = res.body?.getReader();
+  if (!reader) return { type: "error", error: "unreachable" };
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let text = "";
+  let last: Record<string, unknown> = { type: "error", error: "unreachable" };
+  const take = (line: string) => {
+    if (!line.trim()) return;
+    let event: Record<string, unknown>;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      return;
+    }
+    if (event.type === "start" && typeof event.stopId === "string") on.onStart(event.stopId);
+    else if (event.type === "delta" && typeof event.text === "string") {
+      text += event.text;
+      on.onText(text);
+    } else if (event.type === "done" || event.type === "error") last = event;
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    lines.forEach(take);
+  }
+  take(buffer + decoder.decode());
+  return last;
 }
 
 export function SourceCard({ source }: { source: Source }) {
@@ -666,7 +822,7 @@ export function AnswerFooter({
         >
           <MessageSquareText aria-hidden size={18} />
         </button>
-        {copy && runId && <ShareButton runId={runId} answer={answer} />}
+        {copy && runId && turnId && <ShareButton runId={runId} turnId={turnId} />}
         {copy && (
           <button
             type="button"

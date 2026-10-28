@@ -20,12 +20,14 @@ async function result(token: string | null): Promise<Result> {
 }
 
 /** Is this answer shared? Its link, or nulls. Creates nothing. */
-export async function shareStateAction(runId: string, answer: string): Promise<Result> {
+export async function shareStateAction(runId: string, turnId: string): Promise<Result> {
   const user = await getSessionUser();
   if (!user) return { ok: false, error: "unauthorized" };
-  if (!isRunId(String(runId))) return { ok: false, error: "run_not_found" };
+  if (!isRunId(String(runId)) || !isRunId(String(turnId))) {
+    return { ok: false, error: "run_not_found" };
+  }
   try {
-    return result(await shareTokenOf(user.uid, runId, String(answer ?? "")));
+    return result(await shareTokenOf(user.uid, runId, turnId));
   } catch (err) {
     console.error("[share] state failed", err);
     return { ok: false, error: "unavailable" };
@@ -33,12 +35,14 @@ export async function shareStateAction(runId: string, answer: string): Promise<R
 }
 
 /** Shares one stored answer of the user's run as a public page; the same answer keeps its link. */
-export async function shareAnswerAction(runId: string, answer: string): Promise<Result> {
+export async function shareAnswerAction(runId: string, turnId: string): Promise<Result> {
   const user = await getSessionUser();
   if (!user) return { ok: false, error: "unauthorized" };
-  if (!isRunId(String(runId))) return { ok: false, error: "run_not_found" };
+  if (!isRunId(String(runId)) || !isRunId(String(turnId))) {
+    return { ok: false, error: "run_not_found" };
+  }
   try {
-    const token = await shareAnswer(user.uid, runId, String(answer ?? ""));
+    const token = await shareAnswer(user.uid, runId, turnId);
     if (!token) return { ok: false, error: "answer_not_found" };
     return result(token);
   } catch (err) {

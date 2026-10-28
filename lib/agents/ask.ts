@@ -26,7 +26,7 @@
  */
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { generateText, type ModelMessage } from "ai";
+import { type ModelMessage, streamText } from "ai";
 import {
   buildCompleteFilesBlock,
   buildLanguageBlock,
@@ -264,6 +264,8 @@ export type AskResult =
       charges?: TurnCharge[];
       /** Chat asked a clarifying question instead (`answer` is the question): its chips. */
       clarify?: { question: string; options: string[] };
+      /** The user pressed Stop: `answer` is what was written until then. */
+      stopped?: boolean;
     }
   | { kind: "not_covered"; tokens: number; balanceAfter: number | null; charges?: TurnCharge[] };
 
@@ -279,11 +281,23 @@ export class AskRefused extends Error {
   }
 }
 
+/** What the route listens with while an answer streams (audit F5). */
+export interface AskStream {
+  /** Each piece of answer text as the model writes it. */
+  onDelta?: (text: string) => void;
+  /** Aborted when the user presses Stop: the model stops, and what it wrote is the answer. */
+  stop?: AbortSignal;
+}
+
+/** About four characters a token: the estimate a stopped answer is charged by. */
+const CHARS_PER_TOKEN = 4;
+
 export async function runAsk(
   uid: string,
   question: string,
   mode: AskMode = "standard",
   history: HistoryMessage[] = [],
+  stream: AskStream = {},
 ): Promise<AskResult> {
   const wallet = await getBalance(uid);
   if (wallet.balance < wallet.minimum) throw new AskRefused("low_balance");
@@ -346,12 +360,32 @@ export async function runAsk(
       }),
     },
   ];
-  const result = await generateText({
+  // Stopped while the search ran: the model is never called, so only the search is paid for.
+  if (stream.stop?.aborted) {
+    return {
+      kind: "answer",
+      answer: "",
+      sources: [],
+      tokens: searchTokens,
+      balanceAfter: search.balanceAfter,
+      charged: true,
+      stopped: true,
+      charges: searchCharge(runId, search),
+    };
+  }
+
+  // Streamed (audit F5): the text reaches the user as it is written. A Stop aborts the model.
+  const model = new AbortController();
+  const onStop = () => model.abort("stopped");
+  if (stream.stop?.aborted) onStop();
+  stream.stop?.addEventListener("abort", onStop, { once: true });
+  const result = streamText({
     model: ASK_MODEL,
     instructions: SYSTEM_INSTRUCTION_GPT,
     messages,
     // Sebtember's clarify tool: calling it ends the turn with a question and chips.
     tools: { ask_clarification: CLARIFY_TOOL },
+    abortSignal: model.signal,
     ...(mode === "deep"
       ? {
           maxOutputTokens: DEEP_MAX_ANSWER_TOKENS,
@@ -360,21 +394,64 @@ export async function runAsk(
         }
       : { maxOutputTokens: MAX_ANSWER_TOKENS, timeout: ANSWER_TIMEOUT_MS }),
   });
+  let text = "";
+  let totalUsage: AskUsage | null = null;
+  const toolCalls: { toolName: string; input: unknown }[] = [];
+  try {
+    for await (const part of result.fullStream) {
+      if (part.type === "text-delta") {
+        text += part.text;
+        stream.onDelta?.(part.text);
+      } else if (part.type === "tool-call") {
+        toolCalls.push({ toolName: part.toolName, input: part.input });
+      } else if (part.type === "finish") {
+        totalUsage = part.totalUsage;
+      } else if (part.type === "error") {
+        throw part.error;
+      }
+    }
+  } catch (err) {
+    // A Stop ends the stream however the SDK reports it; anything else is a failed answer.
+    if (!model.signal.aborted || model.signal.reason !== "stopped") throw err;
+  } finally {
+    stream.stop?.removeEventListener("abort", onStop);
+  }
+  const stopped = model.signal.aborted && model.signal.reason === "stopped";
+  if (!totalUsage && !stopped) throw new Error("ask: the stream ended without usage");
 
-  const answerTokens = billedAnswerTokens(result.totalUsage);
-  const usage = [usageOf(ASK_MODEL, result.totalUsage)];
+  // ⚠️ A STOPPED ANSWER IS CHARGED BY AN ESTIMATE: the provider reports no usage for a call cut
+  // short, so its prompt and its written text are counted at CHARS_PER_TOKEN (its reasoning is
+  // not counted at all). Never free: stopping just before the end must not make an answer free.
+  const usageNow: AskUsage = totalUsage ?? {
+    inputTokens: Math.ceil(
+      (SYSTEM_INSTRUCTION_GPT.length +
+        messages.reduce(
+          (sum, m) => sum + (typeof m.content === "string" ? m.content.length : 0),
+          0,
+        )) /
+        CHARS_PER_TOKEN,
+    ),
+    outputTokens: Math.ceil(text.length / CHARS_PER_TOKEN),
+  };
+  const answerTokens = billedAnswerTokens(usageNow);
+  const usage = [usageOf(ASK_MODEL, usageNow)];
   logCharge("chat", uid, `${runId}-answer`, answerTokens, usage);
   let balanceAfter = search.balanceAfter;
   let charged = true;
   if (answerTokens > 0) {
-    const line = { id: `${runId}-answer`, tokens: answerTokens, operation: "ask_answer", usage };
+    const line = {
+      id: `${runId}-answer`,
+      tokens: answerTokens,
+      operation: stopped ? "ask_answer_stopped" : "ask_answer",
+      usage,
+    };
     // Kept for a retry when both attempts fail (`lib/unpaid.ts`); idempotent per line id.
     const res = await chargeOrKeep("ask", uid, wallet.source, line);
     if (res) balanceAfter = res.balanceAfter;
     else charged = false;
   }
 
-  const call = result.toolCalls.find((c) => c.toolName === "ask_clarification");
+  const call = toolCalls.find((c) => c.toolName === "ask_clarification");
   const clarify = call ? sanitizeClarify(call.input) : null;
   if (clarify) {
     return {
@@ -393,7 +470,7 @@ export async function runAsk(
     };
   }
 
-  const split = splitSources(result.text);
+  const split = splitSources(text);
   // Sebtember's backstop: a file name cited in the prose goes; the cards carry it.
   const answer = stripInlineFilenames(split.answer);
   const used = split.used;
@@ -405,9 +482,16 @@ export async function runAsk(
     balanceAfter,
     charged,
     usage,
+    ...(stopped ? { stopped: true } : {}),
     charges: [
       ...searchCharge(runId, search),
-      ...agentCharge(`${runId}-answer`, "Answer", answerTokens, usage, charged),
+      ...agentCharge(
+        `${runId}-answer`,
+        stopped ? "Answer (stopped)" : "Answer",
+        answerTokens,
+        usage,
+        charged,
+      ),
     ],
   };
 }

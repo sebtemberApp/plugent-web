@@ -18,7 +18,7 @@ type State =
  * As Sebtember's share dialog: nothing is published until "Create public link", the dialog
  * says who can see it, and a shared answer shows its link with Copy and Stop sharing.
  */
-export function ShareButton({ runId, answer }: { runId: string; answer: string }) {
+export function ShareButton({ runId, turnId }: { runId: string; turnId: string }) {
   const [open, setOpen] = useState(false);
   const [shared, setShared] = useState(false);
   return (
@@ -36,7 +36,7 @@ export function ShareButton({ runId, answer }: { runId: string; answer: string }
       {open && (
         <ShareDialog
           runId={runId}
-          answer={answer}
+          turnId={turnId}
           onShared={setShared}
           onClose={() => setOpen(false)}
         />
@@ -47,12 +47,12 @@ export function ShareButton({ runId, answer }: { runId: string; answer: string }
 
 function ShareDialog({
   runId,
-  answer,
+  turnId,
   onShared,
   onClose,
 }: {
   runId: string;
-  answer: string;
+  turnId: string;
   onShared: (shared: boolean) => void;
   onClose: () => void;
 }) {
@@ -65,7 +65,7 @@ function ShareDialog({
   useEffect(() => {
     close.current?.focus();
     let live = true;
-    shareStateAction(runId, answer).then(
+    shareStateAction(runId, turnId).then(
       (res) => {
         if (!live) return;
         if (!res.ok) return setError("The share couldn't be read. Close and try again.");
@@ -81,7 +81,7 @@ function ShareDialog({
     return () => {
       live = false;
     };
-  }, [runId, answer, onShared]);
+  }, [runId, turnId, onShared]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && !busy && onClose();
@@ -102,7 +102,7 @@ function ShareDialog({
   async function create() {
     setBusy(true);
     setError(null);
-    const res = await shareAnswerAction(runId, answer).catch(() => null);
+    const res = await shareAnswerAction(runId, turnId).catch(() => null);
     setBusy(false);
     if (!res?.ok || !res.url || !res.token) {
       return setError(

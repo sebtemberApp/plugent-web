@@ -3,7 +3,7 @@
  * Sebtember's `shared_answers` (its Step 356). Share is per answer only, never a whole run.
  *
  * ⚠️ A SNAPSHOT, NOT LIVE. `shareAnswer` freezes the question, the answer and its citations
- * into `shared_answers/{token}` from the STORED turn (the client's text only says which turn),
+ * into `shared_answers/{token}` from the STORED turn (the client sends only its id),
  * so a later follow-up in the same run can never reach the public page.
  * ⚠️ CITATIONS ONLY: file name, page and the content owner's name. No catalogue name (a
  * private catalogue's name can say more than its owner meant), no passage text, no download.
@@ -63,13 +63,11 @@ function pointers(uid: string) {
   return plugentDb().collection("users").doc(uid).collection("shares");
 }
 
-/** The run's stored answer turn whose text is `answer` (the latest, if it repeats). */
-async function findTurn(uid: string, runId: string, answer: string) {
+/** The run's stored answer turn `turnId` (not a clarifying question, not "not covered"). */
+async function findTurn(uid: string, runId: string, turnId: string) {
   const run = await readRun(uid, runId);
   if (!run || !SHAREABLE.includes(run.run.agent)) return null;
-  const turn = run.turns.findLast(
-    (t) => t.kind === "answer" && !t.clarify && t.answer.trim() === answer.trim(),
-  );
+  const turn = run.turns.find((t) => t.id === turnId && t.kind === "answer" && !t.clarify);
   return turn?.kind === "answer" ? { agent: run.run.agent, turn } : null;
 }
 
@@ -77,9 +75,9 @@ async function findTurn(uid: string, runId: string, answer: string) {
 export async function shareTokenOf(
   uid: string,
   runId: string,
-  answer: string,
+  turnId: string,
 ): Promise<string | null> {
-  const found = await findTurn(uid, runId, answer);
+  const found = await findTurn(uid, runId, turnId);
   if (!found) return null;
   const doc = await pointers(uid).doc(`${runId}_${found.turn.id}`).get();
   const token = doc.get("token");
@@ -91,9 +89,9 @@ export async function shareTokenOf(
 export async function shareAnswer(
   uid: string,
   runId: string,
-  answer: string,
+  turnId: string,
 ): Promise<string | null> {
-  const found = await findTurn(uid, runId, answer);
+  const found = await findTurn(uid, runId, turnId);
   if (!found) return null;
   const { agent, turn } = found;
   const pointer = pointers(uid).doc(`${runId}_${turn.id}`);
