@@ -1,0 +1,10 @@
+rules_version = '2';
+// Plugent's Firestore is read and written ONLY by the server (Admin SDK, which bypasses
+// these rules). No browser ever reads or writes it.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

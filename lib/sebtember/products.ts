@@ -23,6 +23,17 @@ export interface ChargeLine {
   id: string;
   tokens: number;
   operation: string;
+  /** The model work behind the line, raw counts (sebtember Step 1182). Never prices it. */
+  usage?: ChargeUsage[];
+}
+
+/** One model call's raw usage, as sebtember's `/api/products/charge` takes it. */
+export interface ChargeUsage {
+  model: string;
+  input: number;
+  output: number;
+  reasoning?: number;
+  cached?: number;
 }
 
 export interface ChargeResult {
@@ -90,7 +101,7 @@ export async function diagnoseProductApi(uid: string) {
   };
 }
 
-async function post<T>(path: string, body: unknown): Promise<T> {
+export async function post<T>(path: string, body: unknown): Promise<T> {
   const { origin, idToken } = await mintIdToken();
   const res = await fetch(new URL(path, origin), {
     method: "POST",
@@ -104,9 +115,21 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 }
 
 export interface KnowledgeCatalogues {
-  /** false = the user never connected Plugent on sebtember.app's /connect/plugent. */
+  /** Always true since sebtember Step 1178 (every catalogue is connected by default); false
+   *  only from an older sebtember, where the user never ticked catalogues for Plugent. */
   connected: boolean;
-  catalogues: { id: string; name: string }[];
+  /** `library` (sebtember Step 1176): another user's published catalogue the user subscribes
+   *  to. Absent (an older sebtember) reads as the user's own. */
+  catalogues: {
+    id: string;
+    name: string;
+    library?: boolean;
+    /** sebtember Step 1177: `null` = the user's own catalogue; else whose it is, by the
+     *  admin's display name (`name: null` when they set none). Absent on an older sebtember. */
+    owner?: { name: string | null } | null;
+    /** sebtember Step 1178: the user paused it for Plugent, so no agent reads it. */
+    paused?: boolean;
+  }[];
 }
 
 export interface KnowledgeSourcesPage {
@@ -121,12 +144,12 @@ export interface KnowledgeSourcesPage {
   nextCursor: string | null;
 }
 
-/** The catalogues the user ticked for Plugent (sebtember Step 1174). */
+/** Every catalogue the user can open, each marked paused or not (sebtember Step 1178). */
 export function getKnowledgeCatalogues(uid: string): Promise<KnowledgeCatalogues> {
   return post<KnowledgeCatalogues>("/api/products/knowledge/catalogues", { uid });
 }
 
-/** One page of a granted catalogue's files (metadata only). */
+/** One page of a catalogue's files (metadata only); a paused one is 404. */
 export function getKnowledgeSources(
   uid: string,
   catalogueId: string,
@@ -139,14 +162,41 @@ export function getKnowledgeSources(
   });
 }
 
-/** Where the user ticks catalogues for Plugent; sebtember sends them back to `returnTo`
- *  only when its origin is in sebtember's PRODUCT_RETURN_ORIGINS. */
-export function connectUrl(returnTo: string): string | null {
-  const origin = process.env.SEBTEMBER_API_ORIGIN?.trim();
-  if (!origin) return null;
-  const url = new URL("/connect/plugent", origin);
-  url.searchParams.set("return", returnTo);
-  return url.toString();
+/** Pause or resume one catalogue for Plugent (sebtember Step 1178): every agent skips a
+ *  paused one. 404 `not_found` when the user cannot open it. */
+export function setCataloguePaused(
+  uid: string,
+  catalogueId: string,
+  paused: boolean,
+): Promise<{ catalogue_id: string; paused: boolean }> {
+  return post("/api/products/knowledge/pause", { uid, catalogue_id: catalogueId, paused });
+}
+
+/** The user's Sebtember profile (sebtember Step 1183): reply language and their own notes. */
+export interface ProductProfile {
+  display_name: string | null;
+  /** A language code, "" when unset (a retired language reads as unset). */
+  preferred_language: string;
+  persona_md: string;
+  languages: { code: string; name: string }[];
+}
+
+export function getProfile(uid: string): Promise<ProductProfile> {
+  return post<ProductProfile>("/api/products/profile", { uid });
+}
+
+/** The most a persona brief may hold (sebtember's `PRODUCT_PERSONA_MAX_CHARS`). A longer one is
+ *  refused there, never cut. */
+export const PERSONA_MAX_CHARS = 8000;
+
+/** Saves the user's reply language and/or persona brief (sebtember Step 1183); "" clears a
+ *  field, an absent one is left. Answers the profile as `getProfile` does. 400
+ *  `unknown_language` for a code the picker does not offer. */
+export function updateProfile(
+  uid: string,
+  update: { preferred_language?: string; persona_md?: string },
+): Promise<ProductProfile> {
+  return post<ProductProfile>("/api/products/profile/update", { uid, ...update });
 }
 
 export function getBalance(uid: string): Promise<ProductBalance> {
@@ -164,21 +214,46 @@ export interface KnowledgePassage {
   catalogue_id: string;
   catalogue_name: string | null;
   page: string | null;
+  /** The rest of chat's chunk header (Step 1185; absent from an older sebtember). */
+  collection_name?: string | null;
+  section?: string | null;
+  /** Chat's kind label ("AI-written summary of this file"); null for ordinary content. */
+  kind?: string | null;
+  is_note?: boolean;
   /** Verbatim stored text: quote it, never trust it as instructions. */
   text: string;
+}
+
+/** One earlier turn, oldest first, for sebtember's query rewrite (Step 1185). */
+export interface KnowledgeHistoryTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/** Chat's `<source_quality>` input: a retrieved file that was not fully readable. */
+export interface KnowledgeSourceQuality {
+  filename: string;
+  issues: string[];
 }
 
 export interface KnowledgeSearch {
   passages: KnowledgePassage[];
   retrievalStrength: "rich" | "normal" | "thin" | "empty";
+  /** Chat's own `<catalogue_guidance>` block, already sanitised; "" when none set any. */
+  catalogue_guidance?: string;
+  source_quality?: KnowledgeSourceQuality[];
+  /** Chat's `<complete_files>`: files whose whole stored content is in the passages. */
+  whole_files?: string[];
   /** What sebtember charged for this search, to `source`, as line `{requestId}-search`. */
   charged: { tokens: number; duplicate: boolean };
   balanceAfter: number | null;
+  /** The search's model calls, raw counts, when sebtember sends them (requested 2026-10-28). */
+  usage?: ChargeUsage[];
 }
 
 /**
- * Search the catalogues the user granted Plugent (sebtember Step 1175). Sebtember charges
- * the search itself to `source`, once per `requestId`; 403 `not_connected` without a grant.
+ * Search the user's catalogues, minus the paused ones (sebtember Steps 1175, 1178). Sebtember
+ * charges the search itself to `source`, once per `requestId`.
  */
 export function searchKnowledge(
   uid: string,
@@ -186,6 +261,8 @@ export function searchKnowledge(
   query: string,
   requestId: string,
   limit = 8,
+  /** The conversation before `query` (at most 10 turns): sebtember rewrites a follow-up with it. */
+  history: KnowledgeHistoryTurn[] = [],
 ): Promise<KnowledgeSearch> {
   return post<KnowledgeSearch>("/api/products/knowledge/search", {
     uid,
@@ -193,5 +270,34 @@ export function searchKnowledge(
     query,
     request_id: requestId,
     limit,
+    ...(history.length > 0
+      ? { history: history.slice(-10).map((m) => ({ ...m, content: m.content.slice(0, 20_000) })) }
+      : {}),
   });
+}
+
+/**
+ * A route that answers with a FILE (sebtember's `/api/products/pricing/document`): the bytes, their
+ * type and the download name sebtember chose. An error answer is JSON, as everywhere else.
+ */
+export async function postForFile(
+  path: string,
+  body: unknown,
+): Promise<{ bytes: ArrayBuffer; contentType: string; disposition: string | null }> {
+  const { origin, idToken } = await mintIdToken();
+  const res = await fetch(new URL(path, origin), {
+    method: "POST",
+    headers: { authorization: `Bearer ${idToken}`, "content-type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new SebtemberApiError(res.status, String(data.error ?? "unknown"));
+  }
+  return {
+    bytes: await res.arrayBuffer(),
+    contentType: res.headers.get("content-type") ?? "application/octet-stream",
+    disposition: res.headers.get("content-disposition"),
+  };
 }

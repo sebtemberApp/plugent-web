@@ -1,33 +1,207 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #111418;
-  --muted: #5b6470;
-  --line: #e3e6ea;
-  --accent: #2f5bea;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0f1115;
-    --foreground: #eef0f3;
-    --muted: #9aa3ad;
-    --line: #2a2f36;
-    --accent: #6d8bff;
+/* `dark:` follows the theme the tokens follow: the account menu's pinned theme (`data-theme`),
+   else the system setting. Tailwind's default reads only the system setting, so a user who
+   pinned Light on a dark OS would get dark utilities beside light tokens. */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *) {
+      @slot;
+    }
   }
 }
 
+/*
+ * Plugent's tokens (the design canvas, PeakPick's language): layers, not outlines.
+ * ⚠️ PINK IS THE ACTION COLOUR — a fill is #E0004D in both themes (white text ≈ 4.9:1;
+ * the logo's #FF0058 reaches only ≈ 3.9:1, so it stays in the logo).
+ * Dark applies by the system setting unless the account menu pinned a theme
+ * (`data-theme` on <html>, set before paint by `lib/theme.ts`).
+ */
+:root {
+  --page: #ededf3;
+  --side: #f6f6f9;
+  --card: #ffffff;
+  --raised: #ffffff;
+  --ink: #16152e;
+  --ink2: #5e6380;
+  --fill1: rgba(22, 21, 46, 0.05);
+  --fill2: rgba(22, 21, 46, 0.09);
+  --hair: rgba(22, 21, 46, 0.12);
+  --act: #e0004d;
+  --act-press: #b8003f;
+  --link: #d6004a;
+  --sel: rgba(224, 0, 77, 0.09);
+  --danger: #d70015;
+  --ok: #1e7f4e;
+  --warn: #8a5300;
+  --shadow: 0 0 0 0.5px rgba(22, 21, 46, 0.07), 0 1px 3px rgba(22, 21, 46, 0.06);
+  --shadow-pop: 0 0 0 0.5px rgba(22, 21, 46, 0.08), 0 12px 32px rgba(22, 21, 46, 0.16);
+  --a-chat: #1177b9;
+  --a-ts: #c24a3a;
+  /* Text on a filled agent accent: white on the light accents, page-dark on the dark ones. */
+  --on-accent: #ffffff;
+  --a-spec: #2f7d46;
+  --a-quo: #6e56cf;
+  --a-price: #a23b72;
+  --k-own: #7a6a1e;
+  --k-lib: #0f7a6c;
+  /* The Usage page's two meters: Plugent's agent work, data served by Sebtember. */
+  --u-plg: #e0004d;
+  --u-seb: #3d5afe;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #09090f;
+    --side: #111119;
+    --card: #1a1a26;
+    --raised: #282836;
+    --ink: #ededf3;
+    --ink2: #a1a5b8;
+    --fill1: rgba(255, 255, 255, 0.06);
+    --fill2: rgba(255, 255, 255, 0.1);
+    --hair: rgba(255, 255, 255, 0.09);
+    --link: #ff4d88;
+    --sel: rgba(255, 77, 136, 0.16);
+    --danger: #ff6961;
+    --ok: #5bd08f;
+    --warn: #f2b451;
+    --shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.07);
+    --shadow-pop: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 12px 32px rgba(0, 0, 0, 0.5);
+    --a-chat: #8dbde6;
+    --a-ts: #e8907e;
+    --on-accent: #09090f;
+    --a-spec: #7fcb97;
+    --a-quo: #b4a5f0;
+    --a-price: #e58ab8;
+    --k-own: #d9c470;
+    --k-lib: #6fd3c3;
+    --u-plg: #ff4d88;
+    --u-seb: #7c8cff;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --page: #09090f;
+  --side: #111119;
+  --card: #1a1a26;
+  --raised: #282836;
+  --ink: #ededf3;
+  --ink2: #a1a5b8;
+  --fill1: rgba(255, 255, 255, 0.06);
+  --fill2: rgba(255, 255, 255, 0.1);
+  --hair: rgba(255, 255, 255, 0.09);
+  --link: #ff4d88;
+  --sel: rgba(255, 77, 136, 0.16);
+  --danger: #ff6961;
+  --ok: #5bd08f;
+  --warn: #f2b451;
+  --shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.07);
+  --shadow-pop: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 12px 32px rgba(0, 0, 0, 0.5);
+  --a-chat: #8dbde6;
+  --a-ts: #e8907e;
+  --on-accent: #09090f;
+  --a-spec: #7fcb97;
+  --a-quo: #b4a5f0;
+  --a-price: #e58ab8;
+  --k-own: #d9c470;
+  --k-lib: #6fd3c3;
+  --u-plg: #ff4d88;
+  --u-seb: #7c8cff;
+  color-scheme: dark;
+}
+
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-muted: var(--muted);
-  --color-line: var(--line);
-  --color-accent: var(--accent);
+  --color-page: var(--page);
+  --color-side: var(--side);
+  --color-card: var(--card);
+  --color-raised: var(--raised);
+  --color-ink: var(--ink);
+  --color-ink2: var(--ink2);
+  --color-fill1: var(--fill1);
+  --color-fill2: var(--fill2);
+  --color-hair: var(--hair);
+  --color-act: var(--act);
+  --color-act-press: var(--act-press);
+  --color-link: var(--link);
+  --color-sel: var(--sel);
+  --color-danger: var(--danger);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-a-chat: var(--a-chat);
+  --color-a-ts: var(--a-ts);
+  --color-on-accent: var(--on-accent);
+  --color-a-spec: var(--a-spec);
+  --color-a-quo: var(--a-quo);
+  --color-a-price: var(--a-price);
+  --color-k-own: var(--k-own);
+  --color-k-lib: var(--k-lib);
+  --color-u-plg: var(--u-plg);
+  --color-u-seb: var(--u-seb);
+  --shadow-card: var(--shadow);
+  --shadow-pop: var(--shadow-pop);
+  /* Radii: 8 chip, 12 control, 16 inner, 20 list, 24 card. Buttons are capsules. */
+  --radius-chip: 8px;
+  --radius-control: 12px;
+  --radius-inner: 16px;
+  --radius-list: 20px;
+  --radius-card: 24px;
   --font-sans: var(--font-manrope), system-ui, sans-serif;
+  /* Sebtember's names, for the Pricing view copied from it (components/pricing): each maps onto a
+     Plugent token, so the copy keeps its class strings and wears Plugent's colours. */
+  --color-foreground: var(--ink);
+  --color-muted-foreground: var(--ink2);
+  --color-muted: var(--fill1);
+  --color-background: var(--page);
+  --color-hairline: var(--hair);
+  --color-hairline-strong: var(--hair);
+  --color-destructive: var(--danger);
+  --color-info: var(--act);
+  --color-ring: var(--act);
+  --text-footnote: 0.8125rem;
+  --text-body: 0.875rem;
+  --text-subhead: 0.9375rem;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--page);
+  color: var(--ink);
+}
+
+a.text-link,
+.prose-answer a {
+  color: var(--link);
+}
+
+/* In the base layer, so a utility (`outline-none` on the composer's textarea) can win. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--act);
+    outline-offset: 2px;
+  }
+}
+
+/* The logo has a navy and a light drawing; each theme shows one. */
+.logo-on-dark {
+  display: none;
+}
+:root[data-theme="dark"] .logo-on-light {
+  display: none;
+}
+:root[data-theme="dark"] .logo-on-dark {
+  display: block;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .logo-on-light {
+    display: none;
+  }
+  :root:not([data-theme="light"]) .logo-on-dark {
+    display: block;
+  }
 }
