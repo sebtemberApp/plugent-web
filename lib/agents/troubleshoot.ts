@@ -60,6 +60,7 @@ import {
   SebtemberApiError,
   searchKnowledge,
 } from "@/lib/sebtember/products";
+import { type RunReport, reportRunAfter } from "@/lib/sebtember/report";
 import { chargeOrKeep } from "@/lib/unpaid";
 import {
   agentCharge,
@@ -220,6 +221,8 @@ async function respond(
   const usages: AskUsage[] = [];
   let searchTokens = 0;
   let searchCharges: TurnCharge[] = [];
+  /** What this turn's step drew on, reported once the turn is paid for and saved. */
+  let report: RunReport | null = null;
   let balanceAfter: number | null = null;
   const next: TsState = { ...state, problem };
 
@@ -349,6 +352,21 @@ async function respond(
       };
     }
     const sources = stepSources(search.passages, await catalogueInfo);
+    // Sebtember's troubleshooting gaps: a thin search, or the procedures ran out (`exhausted`,
+    // the cap included) on a search that did find the documents. A `fixed` is never a gap.
+    const strength = search.retrievalStrength;
+    report = {
+      function: "troubleshooting",
+      requestId,
+      passages: search.passages,
+      retrievalStrength: strength,
+      gap:
+        strength === "thin"
+          ? { reason: "thin", query: problem }
+          : parsed.kind === "exhausted" && (strength === "normal" || strength === "rich")
+            ? { reason: "no_procedure", query: problem }
+            : undefined,
+    };
     if (parsed.kind === "step") {
       out.push({
         role: "step",
@@ -411,6 +429,7 @@ async function respond(
     ],
     unpaid: unpaidCharge(`${requestId}-turn`, "Step", turnTokens, usage, charged),
   });
+  if (report) reportRunAfter(uid, report);
   return {
     runId: saved.runId,
     state: next,
