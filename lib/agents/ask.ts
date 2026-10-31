@@ -50,6 +50,7 @@ import {
   SebtemberApiError,
   searchKnowledge,
 } from "@/lib/sebtember/products";
+import { reportRunAfter, thinGap } from "@/lib/sebtember/report";
 import { chargeOrKeep } from "@/lib/unpaid";
 import {
   agentCharge,
@@ -489,6 +490,17 @@ export async function runAsk(
       ],
       unpaid: unpaidCharge(`${runId}-answer`, "Question back", answerTokens, usage, charged),
     };
+  }
+
+  // Paid for: the documents' owners get their credit, and a thin search a gap card.
+  if (text.trim().length > 0) {
+    reportRunAfter(uid, {
+      function: "chat",
+      requestId: runId,
+      passages: search.passages,
+      retrievalStrength: search.retrievalStrength,
+      gap: thinGap(search.retrievalStrength, question),
+    });
   }
 
   const split = splitSources(text);

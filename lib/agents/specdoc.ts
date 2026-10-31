@@ -41,6 +41,7 @@ import {
   SebtemberApiError,
   searchKnowledge,
 } from "@/lib/sebtember/products";
+import { reportRunAfter, thinGap } from "@/lib/sebtember/report";
 import { chargeOrKeep } from "@/lib/unpaid";
 import { agentCharge, logCharge, searchCharge, unpaidCharge, usageOf } from "@/lib/usage";
 
@@ -257,6 +258,17 @@ export async function runSpecDoc(
 
   const output = result.text.trim();
   const declined = isDeclineOutput(output);
+  // A finished draft credits what it read, and a thin search is a gap. A decline reports
+  // nothing: Plugent cannot tell a coverage decline from a "which device?" one.
+  if (!declined && output.length > 0) {
+    reportRunAfter(uid, {
+      function: agent,
+      requestId: runId,
+      passages: search.passages,
+      retrievalStrength: search.retrievalStrength,
+      gap: thinGap(search.retrievalStrength, subject),
+    });
+  }
   return {
     kind: "answer",
     answer: output,
