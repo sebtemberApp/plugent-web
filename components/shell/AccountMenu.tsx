@@ -23,7 +23,6 @@ import { useEffect, useRef, useState } from "react";
 import { type ProfileView, readProfileAction, saveLanguageAction } from "@/app/actions/profile";
 import { auth } from "@/lib/firebase/client";
 import { applyTheme, readTheme, type ThemeChoice } from "@/lib/ui/theme";
-import { AboutYouDialog } from "./AboutYouDialog";
 import { formatTokens, useBalance } from "./BalanceContext";
 
 const THEMES: { id: ThemeChoice; label: string; icon: React.ReactNode }[] = [
@@ -95,7 +94,6 @@ export function AccountMenu({
   const [profile, setProfile] = useState<ProfileView | "loading" | "error" | null>(null);
   const [savingLanguage, setSavingLanguage] = useState<string | null>(null);
   const [languageError, setLanguageError] = useState(false);
-  const [aboutYou, setAboutYou] = useState(false);
   const box = useRef<HTMLDivElement>(null);
 
   useEffect(() => setTheme(readTheme()), []);
@@ -267,24 +265,26 @@ export function AccountMenu({
                 <span className="min-w-0 truncate text-[13px] text-ink2">{languageLabel}</span>
                 <ChevronRight aria-hidden size={15} className="shrink-0 text-ink2" />
               </button>
-              <button
-                type="button"
-                role="menuitem"
-                disabled={!ready}
-                onClick={() => {
-                  setOpen(false);
-                  setAboutYou(true);
-                }}
-                className={`${ITEM} disabled:cursor-default disabled:hover:bg-transparent`}
-              >
-                <UserRound aria-hidden size={16} className="text-ink2" />
-                <span className="flex-1">About you</span>
-                {ready && (
-                  <span className="text-[13px] text-ink2">
-                    {ready.persona ? "Written" : "Not set"}
-                  </span>
-                )}
-              </button>
+              {/* The persona brief is edited on sebtember.app only (sebtember Step 1220,
+                  operator's decision): agents here read it; this row opens the editor there. */}
+              {sebtemberUrl && (
+                <a
+                  role="menuitem"
+                  href={new URL("/profiles", sebtemberUrl).toString()}
+                  target="_blank"
+                  rel="noopener"
+                  className={ITEM}
+                >
+                  <UserRound aria-hidden size={16} className="text-ink2" />
+                  <span className="flex-1">About you</span>
+                  {ready && (
+                    <span className="text-[13px] text-ink2">
+                      {ready.persona ? "Written" : "Not set"}
+                    </span>
+                  )}
+                  <ArrowUpRight aria-hidden size={14} className="text-ink2" />
+                </a>
+              )}
               <div className="my-1 h-px bg-hair" />
               <button type="button" role="menuitem" onClick={signOutBoth} className={ITEM}>
                 <LogOut aria-hidden size={16} className="text-ink2" />
@@ -293,13 +293,6 @@ export function AccountMenu({
             </>
           )}
         </div>
-      )}
-      {aboutYou && ready && (
-        <AboutYouDialog
-          initial={ready.persona}
-          onClose={() => setAboutYou(false)}
-          onSaved={(persona) => setProfile({ ...ready, persona })}
-        />
       )}
       <button
         type="button"
