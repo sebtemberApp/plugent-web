@@ -3,7 +3,6 @@
 import { getSessionUser } from "@/lib/auth/session";
 import {
   getProfile,
-  PERSONA_MAX_CHARS,
   type ProductProfile,
   SebtemberApiError,
   updateProfile,
@@ -52,19 +51,6 @@ export async function saveLanguageAction(code: string): Promise<Result> {
       ok: true,
       profile: view(await updateProfile(user.uid, { preferred_language: clean })),
     };
-  } catch (err) {
-    return failure(err);
-  }
-}
-
-/** Saves the persona brief every agent answers with; "" clears it. Too long is refused, not cut. */
-export async function savePersonaAction(text: string): Promise<Result> {
-  const user = await getSessionUser();
-  if (!user) return { ok: false, error: "unauthorized" };
-  const clean = String(text ?? "").trim();
-  if (clean.length > PERSONA_MAX_CHARS) return { ok: false, error: "too_long" };
-  try {
-    return { ok: true, profile: view(await updateProfile(user.uid, { persona_md: clean })) };
   } catch (err) {
     return failure(err);
   }
