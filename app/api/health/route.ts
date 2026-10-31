@@ -29,6 +29,16 @@ export function GET() {
     settings,
     sessionSecretLongEnough: (process.env.PLUGENT_SESSION_SECRET ?? "").length >= 32,
     serviceAccountJsonParses: parses(process.env.PLUGENT_SERVICE_ACCOUNT_JSON),
+    // sebtember's account-deletion call (/api/account/deleted). Not secrets: the audience is
+    // this endpoint's own public URL, and a caller is shown only by its email's DOMAIN (the
+    // Google Cloud project), so a value that names the wrong project or host shows here.
+    accountDeleted: {
+      audience: process.env.SEBTEMBER_DELETE_AUDIENCE?.trim() || null,
+      callerDomains: (process.env.SEBTEMBER_CALLER_EMAILS ?? "")
+        .split(",")
+        .map((e) => e.trim().toLowerCase().split("@")[1] ?? "")
+        .filter(Boolean),
+    },
     // The Ask agent's model: an AI Gateway key, else Vercel's OIDC token on a deployment.
     aiGateway: process.env.AI_GATEWAY_API_KEY?.trim()
       ? "key"

@@ -44,8 +44,12 @@ export async function POST(req: NextRequest) {
   } catch {
     // An invalid, expired or wrong-audience token: unauthorized below.
   }
-  if (!email || !allowed.has(email)) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // Which check failed, never a value: `token` = signature, expiry or AUDIENCE (compare
+  // `/api/health`'s accountDeleted.audience with the URL the caller signs for); `caller` = a
+  // good token from an email not listed in SEBTEMBER_CALLER_EMAILS.
+  if (!email) return NextResponse.json({ error: "unauthorized", reason: "token" }, { status: 401 });
+  if (!allowed.has(email)) {
+    return NextResponse.json({ error: "unauthorized", reason: "caller" }, { status: 401 });
   }
 
   const body = (await req.json().catch(() => null)) as { uid?: unknown } | null;
