@@ -103,6 +103,7 @@ const ERRORS: Record<string, string> = {
   rate_limited: "Too many requests. Wait a moment and try again.",
   unavailable: "Sebtember didn't answer. Try again in a moment.",
   no_upload: "The file didn't arrive. Upload it again.",
+  no_match: "There is no match to continue. Start pricing again.",
 };
 
 /** ⚠️ The same two thresholds the chat card uses, and for the same reasons:
@@ -110,8 +111,12 @@ const ERRORS: Record<string, string> = {
  *  fallback only fires once the function is provably dead and "start over"
  *  cannot race a live run. Below it, a live run reads as dead and a re-run
  *  bills the same work twice — the Step-511 bug. */
-const EXTRACT_STALE_MS = 180_000;
+// ⚠️ Above the route's 300 s too: at 180 s a long read after a reload offered Dismiss (a force
+// cancel) over a live, billed read.
+const EXTRACT_STALE_MS = 330_000;
 const MATCH_STALE_MS = 330_000;
+/** How many times a refused or failed continuation is tried again, 5 s apart, before it waits. */
+const CONTINUE_RETRIES = 6;
 
 export function PricingView({
   runId,
@@ -138,6 +143,7 @@ export function PricingView({
   const router = useRouter();
   const { spent } = useBalance();
   const [busy, setBusy] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   /**
    * Price lists switched OFF. Stored as the EXCLUSIONS, not the selection, so a
@@ -284,6 +290,7 @@ export function PricingView({
    * write, and without it each write would launch another POST.
    */
   const continuingRef = useRef(false);
+  const continueRetries = useRef(0);
   // A continuation that pauses again leaves the flags as they were, so each finished one ticks
   // this to re-run the effect for the next.
   const [continueTick, setContinueTick] = useState(0);
@@ -296,20 +303,24 @@ export function PricingView({
     if (continuingRef.current) return;
     continuingRef.current = true;
     void (async () => {
+      let ok: Awaited<ReturnType<typeof post>> | false = false;
       try {
-        // Same request id, the next continuation number: sebtember charges it as its own line.
-        continuation.current.n += 1;
-        const ok = await post("match", {
-          requestId: continuation.current.requestId,
-          continue: continuation.current.n,
-        });
-        // Only a continuation that worked arms the next; a refusal shows and stops here.
-        if (ok === true) setContinueTick((t) => t + 1);
+        // The server takes the run's request id and the next continuation number itself.
+        ok = await post("match", { continue: 1 });
       } catch {
-        // The next progress write re-arms this; a genuinely stopped run is
-        // caught by the staleness fallback.
+        ok = false;
       } finally {
         continuingRef.current = false;
+      }
+      if (ok === true) {
+        continueRetries.current = 0;
+        setContinueTick((t) => t + 1);
+      } else if (continueRetries.current < CONTINUE_RETRIES) {
+        // ⚠️ A refusal or a network error changes none of the effect's inputs, so nothing else
+        // would re-arm it and the page sat at "Resuming…". The usual refusal is `busy`: the
+        // first leg's POST is still finishing. Try again shortly, a few times.
+        continueRetries.current += 1;
+        setTimeout(() => setContinueTick((t) => t + 1), 5000);
       }
     })();
   }, [state.continueNeeded, state.status, docId, continueTick]);
@@ -425,16 +436,20 @@ export function PricingView({
     }
   }
 
+  /**
+   * ⚠️ NOT gated by `busy`: the first match leg holds `busy` for the whole POST (up to 5 min, every
+   * batch billed), and Stop must work exactly then. Its own flag stops a double click.
+   */
   async function cancel(force = false) {
-    if (busy) return;
-    setBusy(true);
+    if (stopping) return;
+    setStopping(true);
     setActionError(null);
     try {
       await post("cancel", force ? { force: true } : undefined);
     } catch {
       setActionError("Network error.");
     } finally {
-      setBusy(false);
+      setStopping(false);
     }
   }
 
@@ -937,7 +952,7 @@ export function PricingView({
         }
       />
       <div className="flex justify-end">
-        <CancelButton onClick={() => void cancel()} busy={busy} label="Stop" />
+        <CancelButton onClick={() => void cancel()} busy={stopping} label="Stop" />
       </div>
     </div>
   ) : state.status === "error" ? (

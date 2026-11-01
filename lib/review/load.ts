@@ -16,11 +16,20 @@ export async function loadConversations(
   limit = 200,
 ): Promise<Conversation[]> {
   const since = new Date(Date.now() - days * 86_400_000);
-  // The collection-group index on `traces.createdAt` (firestore.indexes.json) serves this.
-  const recent = await db.collectionGroup("traces").where("createdAt", ">=", since).get();
+  const now = Date.now();
+  // The collection-group index on `traces.createdAt` (firestore.indexes.json) serves this. NEWEST
+  // first, so `limit` keeps the latest conversations; only the two fields it needs are read.
+  const recent = await db
+    .collectionGroup("traces")
+    .where("createdAt", ">=", since)
+    .orderBy("createdAt", "desc")
+    .select("agent", "expireAt")
+    .get();
   const runRefs = new Map<string, FirebaseFirestore.DocumentReference>();
   for (const d of recent.docs) {
     if (d.get("agent") !== "chat") continue;
+    // The TTL deletes lazily (often a day late): an expired trace is never evidence.
+    if (millis(d.get("expireAt")) <= now) continue;
     const run = d.ref.parent.parent;
     if (run) runRefs.set(run.path, run);
   }
@@ -43,7 +52,9 @@ export async function loadConversations(
       run.collection("turns").orderBy("createdAt").get(),
       run.collection("traces").get(),
     ]);
-    const traceOf = new Map(traces.docs.map((t) => [t.id, t.data()]));
+    const traceOf = new Map(
+      traces.docs.filter((t) => millis(t.get("expireAt")) > now).map((t) => [t.id, t.data()]),
+    );
     const reviewTurns: ReviewTurn[] = turns.docs.map((t) => {
       const tr = traceOf.get(t.id);
       return {
