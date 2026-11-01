@@ -1,0 +1,98 @@
+# Chat behavioral gate — ported from sebtember's behavior-gate.yml (Step 558) when Chat's prompt
+# became Plugent's own (2026-11-01).
+#
+# WHAT
+# ----
+# Runs `pnpm eval:chat-behavior -- --run` on a PR that changes Chat's answer call — the prompt
+# (lib/agents/chat-prompt.ts), how the turn is built and read (lib/agents/ask-prompt.ts), the
+# shared clarify tool or sanitiser, or the gate itself — so an edit that regresses a locked-in
+# behaviour (over-refusal, over-promising offers, missing synthesis, filename leaks, subject
+# match, Lithuanian terminology, …) FAILS this check instead of reaching a user. 22 baked cases,
+# deterministic asserts + a claude-sonnet-5 judge; see lib/agents/eval/chat-behavior-eval.ts.
+#
+# DORMANT UNTIL YOU ACTIVATE IT
+# -----------------------------
+# The eval calls the Vercel AI Gateway (Chat's answer model + the judge), which needs
+# AI_GATEWAY_API_KEY. Add it as a repo secret (Settings → Secrets and variables → Actions → New
+# repository secret) to turn the gate ON. Until then the job SKIPS with a notice (still green).
+# Secrets are never given to PRs from forks.
+#
+# SAFE TO MARK REQUIRED
+# ---------------------
+# The job runs on EVERY PR but only spends money when a relevant file changed (it diffs against
+# the base branch), so it always completes. Change detection fails SAFE: if it can't tell what
+# changed, it runs the gate.
+
+name: Chat behavioral gate
+
+on:
+  pull_request:
+  workflow_dispatch: {}
+
+jobs:
+  chat-behavior:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history so the base commit is present for the change diff below.
+          fetch-depth: 0
+
+      - name: Did Chat's answer call or the gate change?
+        id: changed
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$base" ] || ! git cat-file -e "$base" 2>/dev/null; then
+            # workflow_dispatch, or the base commit isn't available — run to be safe.
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "$base"...HEAD \
+              | grep -qE '^lib/agents/(chat-prompt\.ts|ask-prompt\.ts|clarify\.ts|sanitize\.ts|eval/chat-behavior-(eval\.ts|cases\.json))$'; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Is the gateway key set?
+        id: key
+        # Compares the secret to empty (never echoes its value) — outputs true/false.
+        run: echo "active=${{ secrets.AI_GATEWAY_API_KEY != '' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Skip — answer call unchanged
+        if: steps.changed.outputs.relevant != 'true'
+        run: echo "::notice::No change to Chat's prompt, its call or the gate — Chat behavioral gate not run."
+
+      - name: Skip — gate dormant (no secret)
+        if: steps.changed.outputs.relevant == 'true' && steps.key.outputs.active != 'true'
+        run: echo "::notice::Chat's answer call changed, but the AI_GATEWAY_API_KEY secret is not set — the gate is DORMANT. Add the secret to activate it."
+
+      - name: Setup pnpm
+        if: steps.changed.outputs.relevant == 'true' && steps.key.outputs.active == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        if: steps.changed.outputs.relevant == 'true' && steps.key.outputs.active == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.changed.outputs.relevant == 'true' && steps.key.outputs.active == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Chat behavioral gate
+        if: steps.changed.outputs.relevant == 'true' && steps.key.outputs.active == 'true'
+        env:
+          AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+        run: pnpm eval:chat-behavior -- --run
+
+      - name: Keep the report
+        if: always() && steps.changed.outputs.relevant == 'true' && steps.key.outputs.active == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: chat-behavior-report
+          path: eval-results/
+          if-no-files-found: ignore

@@ -25,14 +25,20 @@ built like PeakPick. It NEVER reads sebtember's Firestore or vectors directly. T
 - ⚠️ **Plugent's Firestore is SERVER-ONLY** (`lib/firebase/admin.ts`, the same service-account key;
   `firestore.rules` denies every client). Runs live under `users/{uid}/runs/{runId}` + `turns/`, so a run id
   can never reach another user's run; only `lib/runs.ts` touches them. Suggestions: `agent_suggestions`; answer feedback: `answer_feedback` (the stored run names the agent and quotes the turn); rate limits: `rate_limits/{uid}_{scope}_{minute}` (`lib/rate-limit.ts`, 20 runs a minute, every agent route); a deleted run's charges: `users/{uid}/deleted_runs` (the Usage page keeps them); preferences (agents turned off, Chat's default mode): `users/{uid}`, only `lib/prefs.ts`. An agent turned off is hidden from the sidebar and Home and its route refuses (403 `agent_off`).
-- ⚠️ **AGENT PROMPTS ARE SEBTEMBER'S, COPIED VERBATIM** — Chat (`lib/agents/chat-prompt.ts`: sebtember's
-  `SYSTEM_INSTRUCTION_GPT`, language block, chunk header and version reminder, fed in sebtember's block order by
-  `buildAskPrompt`), Specification/Quotation (`lib/agents/spec-prompts.ts`) and
-  Troubleshooting (`lib/agents/troubleshoot-prompts.ts`) carry sebtember's eval-chosen prompts; every agent writes in
-  the user's Sebtember language (`lib/agents/profile.ts`, fail-open) and user text passes sebtember's
-  `sanitizeForPrompt` (`lib/agents/sanitize.ts`); Chat continues the run's last 10 messages and may ask back
-  through sebtember's `ask_clarification` (`lib/agents/clarify.ts`); change them in sebtember first,
-  then copy. Every agent reads knowledge only through `searchKnowledge` and charges through `charge`.
+- ⚠️ **CHAT'S PROMPT IS PLUGENT'S OWN** (since 2026-11-01; sebtember.app's chat is retired and its copy is frozen for
+  the Knowledge Widget and Slack). `lib/agents/chat-prompt.ts` (it began as sebtember's `SYSTEM_INSTRUCTION_GPT`
+  `gpt-3`, language block, chunk header and version reminder) is edited HERE, never copied in; bump
+  `CHAT_PROMPT_VERSION`. The call itself is `lib/agents/ask-prompt.ts` (`askCallOptions`, `askMessages`,
+  `buildAskPrompt`, `readAnswer`): pure, no `server-only`, so `runAsk` and the behaviour eval run the SAME code.
+  **Every change to either passes `pnpm eval:chat-behavior -- --run`** (`lib/agents/eval/`, baked cases, the
+  `Chat behavioral gate` workflow on PRs); a behaviour fixed by a prompt edit gets a case. Chat still continues the
+  run's last 10 messages, may ask back through `ask_clarification` and gets its passages from sebtember's search.
+- ⚠️ **THE OTHER AGENTS' PROMPTS ARE SEBTEMBER'S, COPIED VERBATIM** — Specification/Quotation
+  (`lib/agents/spec-prompts.ts`) and Troubleshooting (`lib/agents/troubleshoot-prompts.ts`) carry sebtember's
+  eval-chosen prompts, and the shared `lib/agents/clarify.ts` and `lib/agents/sanitize.ts` stay copies (Chat uses
+  them too: fork a Chat-only file before changing one for Chat); change them in sebtember first, then copy. Every agent
+  writes in the user's Sebtember language (`lib/agents/profile.ts`, fail-open), user text passes `sanitizeForPrompt`,
+  and every agent reads knowledge only through `searchKnowledge` and charges through `charge`.
 - ⚠️ **PRICING RUNS ON SEBTEMBER'S ENGINE** (`/api/products/pricing/*`, `lib/sebtember/pricing.ts`); sebtember charges
   each step itself and Plugent keeps each charge as a turn. Its LOGIC is sebtember's, copied verbatim
   (`lib/agents/ipl/*`, `lib/agents/moi/{types,sniff}.ts`, `lib/pricing/{confirm,document,source-export}.ts`, the
@@ -49,4 +55,5 @@ built like PeakPick. It NEVER reads sebtember's Firestore or vectors directly. T
 `https://dev.sebtember.app`. Variables: `.env.example`.
 
 ## Commands
-`pnpm dev` · `pnpm build` · `pnpm lint` · `pnpm typecheck`
+`pnpm dev` · `pnpm build` · `pnpm lint` · `pnpm typecheck` · `pnpm eval:chat-behavior` (free shape check;
+`-- --run` for the paid suite, needs `AI_GATEWAY_API_KEY`)

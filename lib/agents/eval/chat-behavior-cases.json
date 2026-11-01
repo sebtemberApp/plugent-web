@@ -1,0 +1,466 @@
+[
+  {
+    "id": "dims-multiply-sign",
+    "category": "formatting",
+    "since": "seb 546",
+    "retrieval_strength": "rich",
+    "passages": [
+      {
+        "file_name": "NIBE F2120 spec sheet.pdf",
+        "catalogue_name": "Heat pumps",
+        "text": "Heat pump NIBE F2120-40. Dimensions (W*D*H): 1790*1380*460 mm. Weight: 200 kg. Rated output: 40 kW. Series: F2120 outdoor air/water range. Refrigerant: R290."
+      }
+    ],
+    "question": "What are the dimensions of the F2120-40?",
+    "checks": [{ "assert": "dims_use_multiply_sign" }, { "assert": "no_raw_asterisk_dims" }]
+  },
+  {
+    "id": "no-filename-in-prose",
+    "category": "citations",
+    "since": "seb §6",
+    "retrieval_strength": "rich",
+    "passages": [
+      {
+        "file_name": "Pricelist_2026.pdf",
+        "catalogue_name": "Price lists",
+        "page": "5",
+        "text": "Circulator pump CP-25: net price EUR 240.00, gross EUR 290.40 (VAT 21%)."
+      }
+    ],
+    "question": "What's the price of the CP-25?",
+    "checks": [{ "assert": "no_filename_in_prose" }]
+  },
+  {
+    "id": "emoji-on-substantive",
+    "category": "voice",
+    "since": "seb 541",
+    "retrieval_strength": "rich",
+    "passages": [
+      {
+        "file_name": "Boiler service manual.pdf",
+        "catalogue_name": "Service manuals",
+        "page": "14",
+        "text": "Fault code F28: no flame at ignition. Causes: gas valve closed, blocked condensate trap, faulty ignition electrode (gap 3.5 mm), low gas pressure (min 18 mbar). Resolution: 1) confirm gas valve open, 2) clear the condensate trap, 3) check + clean the electrode gap, 4) verify inlet pressure with a manometer."
+      }
+    ],
+    "question": "My boiler shows an F28 error — what does it mean and how do I fix it?",
+    "checks": [{ "assert": "has_palette_emoji" }, { "assert": "no_filename_in_prose" }]
+  },
+  {
+    "id": "thin-one-sentence-no-emoji",
+    "category": "calibration",
+    "since": "seb §5",
+    "retrieval_strength": "thin",
+    "passages": [
+      {
+        "file_name": "Price list.pdf",
+        "catalogue_name": "Price lists",
+        "text": "Filter cartridge FC-10: EUR 12.50."
+      }
+    ],
+    "question": "How much is the FC-10 filter cartridge?",
+    "checks": [
+      { "assert": "no_markdown_heading" },
+      { "assert": "no_emoji" },
+      { "assert": "at_most_two_sentences" }
+    ]
+  },
+  {
+    "id": "synthesis-cascade",
+    "category": "reasoning",
+    "since": "seb 550",
+    "retrieval_strength": "rich",
+    "passages": [
+      {
+        "file_name": "Elterm 9 kW spec sheet.pdf",
+        "catalogue_name": "Elterm",
+        "text": "Elterm 9 kW electric boiler. Communication: RS485 port for cascade control (up to 8 units)."
+      },
+      {
+        "file_name": "Elterm 15 kW spec sheet.pdf",
+        "catalogue_name": "Elterm",
+        "text": "Elterm 15 kW electric boiler. Communication: RS485 port for cascade control (up to 8 units)."
+      }
+    ],
+    "question": "Can I run the 9 kW and 15 kW Elterm units together in one mixed cascade, even though they're different capacities?",
+    "checks": [
+      {
+        "judge": "Does the answer CONCLUDE that the two units can be connected together in a cascade (a 'yes' / 'possible' / 'they can be linked'), and point to the shared RS485 cascade interface as the reason? Adding caveats about mixed-capacity operating rules is fine and still counts as yes; merely listing each unit's port without reaching the conclusion, or refusing, is no.",
+        "expect": "yes"
+      }
+    ]
+  },
+  {
+    "id": "synthesis-guardrail-insufficient",
+    "category": "reasoning",
+    "since": "seb 550",
+    "retrieval_strength": "normal",
+    "passages": [
+      {
+        "file_name": "Elterm 9 kW spec sheet.pdf",
+        "catalogue_name": "Elterm",
+        "text": "Elterm 9 kW boiler. RS485 port for cascade control."
+      },
+      {
+        "file_name": "Elterm 24 kW spec sheet.pdf",
+        "catalogue_name": "Elterm",
+        "text": "Elterm 24 kW boiler. Output 24 kW, 400 V 3-phase. (no communication interface listed)"
+      }
+    ],
+    "question": "Can I cascade the 9 kW and the 24 kW Elterm units together?",
+    "checks": [
+      {
+        "judge": "Does the answer AVOID a clean unconditional 'yes'? The context shows the 9 kW has an RS485 cascade port but lists NO interface for the 24 kW, so a confident 'yes, you can cascade them' is a FAIL. Noting the 24 kW's interface is unknown / missing, or naming what would confirm it, is a PASS.",
+        "expect": "yes"
+      }
+    ]
+  },
+  {
+    "id": "offers-no-absent-promise",
+    "category": "honesty",
+    "since": "seb 554",
+    "retrieval_strength": "rich",
+    "passages": [
+      {
+        "file_name": "Price list 2026.pdf",
+        "catalogue_name": "Price lists",
+        "text": "Heat pump AeroX-9: price EUR 4,200 (excl. VAT). Rated output 9 kW. Refrigerant R290. Series: AeroX outdoor air/water range."
+      }
+    ],
+    "question": "Tell me about the AeroX-9 — I'm speccing it for a job.",
+    "checks": [
+      {
+        "judge": "Does the answer AVOID unconditionally offering to extract or provide SPECIFIC data that is NOT in the context (e.g. installation distances, noise level, water connections, dimensions, weight)? An unconditional promise like 'I can also get you the installation distances and noise level' is a FAIL. No such offer, or a CONDITIONAL 'if you add the datasheet I can pull them' framing, is a PASS.",
+        "expect": "yes"
+      }
+    ]
+  },
+  {
+    "id": "offers-grounded-included",
+    "category": "completeness",
+    "since": "seb 545",
+    "retrieval_strength": "rich",
+    "passages": [
+      {
+        "file_name": "AeroX-9 datasheet.pdf",
+        "catalogue_name": "AeroX",
+        "text": "Heat pump AeroX-9. Rated output 9 kW. Noise level 42 dB(A) at 1 m. Installation clearances: 300 mm sides, 500 mm front. Weight 95 kg. Dimensions (W×D×H) 1100 × 400 × 750 mm. Refrigerant R290."
+      }
+    ],
+    "question": "What's the rated output of the AeroX-9?",
+    "checks": [
+      {
+        "judge": "Beyond stating the 9 kW output, does the answer SURFACE at least one other grounded companion spec that is present in the context (noise, clearances, weight, or dimensions)? Surfacing them (either inline or in a short list) is a PASS; answering with ONLY the 9 kW figure and nothing else is a FAIL.",
+        "expect": "yes"
+      }
+    ]
+  },
+  {
+    "id": "general-knowledge-answered",
+    "category": "knowledge",
+    "since": "seb 548",
+    "retrieval_strength": "thin",
+    "passages": [
+      {
+        "file_name": "Elterm product catalogue.pdf",
+        "catalogue_name": "Elterm",
+        "text": "Elterm electric boilers: models 6 kW, 9 kW, 12 kW, 15 kW. All models include an RS485 communication port for cascade control."
+      }
+    ],
+    "question": "Is it generally possible to connect electric boilers together in a cascade?",
+    "checks": [
+      {
+        "judge": "Does the answer ANSWER the general feasibility question from domain knowledge (e.g. 'yes, in general boilers can be cascaded…'), rather than refusing with something like 'I can't confirm this from your documents'? Answering the general question is a PASS; a refusal / deflection that never addresses feasibility is a FAIL.",
+        "expect": "yes"
+      }
+    ]
+  },
+  {
+    "id": "grounding-absent-fact",
+    "category": "grounding",
+    "since": "seb §2",
+    "retrieval_strength": "normal",
+    "passages": [
+      {
+        "file_name": "Elterm price list.pdf",
+        "catalogue_name": "Elterm",
+        "text": "Elterm 9 kW: EUR 450. Elterm 15 kW: EUR 620."
+      }
+    ],
+    "question": "What's the price of the Elterm 24 kW?",
+    "checks": [
+      {
+        "judge": "The context lists prices for the 9 kW and 15 kW only, NOT the 24 kW. Does the answer AVOID stating any specific price for the 24 kW and instead disclose that the 24 kW isn't in the material? Inventing/estimating a 24 kW price is a FAIL; disclosing the gap is a PASS.",
+        "expect": "yes"
+      }
+    ]
+  },
+  {
+    "id": "out-of-scope-brand",
+    "category": "grounding",
+    "since": "seb §2",
+    "retrieval_strength": "normal",
+    "passages": [
+      {
+        "file_name": "XR-9 compliance sheet.pdf",
+        "catalogue_name": "Valves",
+        "text": "The XR-9 valve is certified to EN 12516-2 and rated PN16."
+      }
+    ],
+    "question": "Is the XR-9 valve compliant with EN 12516-2? Also, what's the pressure rating of the Grundfos Magna3?",
+    "checks": [
+      {
+        "judge": "The context covers the XR-9 but says nothing about the Grundfos Magna3. Does the answer confirm the XR-9's EN 12516-2 compliance from the context AND state that it has no Grundfos Magna3 information (rather than fabricating a Magna3 rating)? Both held = PASS; a fabricated Magna3 spec = FAIL.",
+        "expect": "yes"
+      }
+    ]
+  },
+  {
+    "id": "lt-language-adherence",
+    "category": "localization",
+    "since": "seb 305",
+    "retrieval_strength": "rich",
+    "language": "Lithuanian",
+    "passages": [
+      {
+        "file_name": "Kainoraštis 2026.pdf",
+        "catalogue_name": "Kainoraščiai",
+        "text": "Šilumos siurblys AeroX-9: kaina 4 200 EUR (be PVM). Galia 9 kW. Šaltnešis R290."
+      }
+    ],
+    "question": "Papasakok apie AeroX-9.",
+    "checks": [
+      {
+        "judge": "Is the answer written in Lithuanian (the response_language directive), while keeping the model name AeroX-9 and figures verbatim? Lithuanian prose = PASS; an English answer = FAIL.",
+        "expect": "yes"
+      }
+    ]
+  },
+  {
+    "id": "lt-table-cell-translation",
+    "category": "localization",
+    "since": "seb 589",
+    "retrieval_strength": "rich",
+    "language": "Lithuanian",
+    "passages": [
+      {
+        "file_name": "Product catalogue 2026.pdf",
+        "catalogue_name": "Electric boilers",
+        "text": "Electric boiler models and their main function differences.\nModel: Captain | Series: LCD advanced automation | Code: 126xx | Main differences: weekly temperature controller, weather compensation, 4x PV ready, web application (option), radio boiler control (option), max. operating temperature 70 C.\nModel: Colonel | Series: LCD advanced automation | Code: 127xx | Main differences: weekly temperature controller, weather compensation, 4x PV ready, web application (option), DHW external storage tank (option), max. operating temperature 70 C.\nModel: Lieutenant | Series: LCD | Code: not provided | Main differences: flow heater, weekly temperature controller, weather compensation.\n<table_data>{\"headers\":[\"Model\",\"Series\",\"Code\",\"Main differences\"],\"rows\":[{\"Model\":\"Captain\",\"Series\":\"LCD advanced automation\",\"Code\":\"126xx\",\"Main differences\":\"weekly temperature controller, weather compensation, 4x PV ready, web application (option), radio boiler control (option), max. operating temperature 70 C\"},{\"Model\":\"Colonel\",\"Series\":\"LCD advanced automation\",\"Code\":\"127xx\",\"Main differences\":\"weekly temperature controller, weather compensation, 4x PV ready, web application (option), DHW external storage tank (option), max. operating temperature 70 C\"},{\"Model\":\"Lieutenant\",\"Series\":\"LCD\",\"Code\":\"not provided\",\"Main differences\":\"flow heater, weekly temperature controller, weather compensation\"}]}</table_data>"
+      }
+    ],
+    "question": "Pateik lentelę su visais modeliais ir jų pagrindiniais funkcijų skirtumais.",
+    "checks": [
+      {
+        "judge": "The answer should be a Markdown table of the models. Are the feature descriptions in the differences column written in LITHUANIAN — e.g. 'weekly temperature controller' and 'weather compensation' TRANSLATED to Lithuanian, NOT left in English — while the model names (Captain, Colonel, Lieutenant) and codes (126xx, 127xx) are kept verbatim? Lithuanian cell descriptions = PASS; English feature descriptions copied verbatim into the cells = FAIL.",
+        "expect": "yes"
+      }
+    ]
+  },
+  {
+    "id": "persona-no-emoji-override",
+    "category": "persona",
+    "since": "seb §3",
+    "informational": true,
+    "persona_md": "Please never use emojis in your answers — I find them unprofessional.",
+    "retrieval_strength": "rich",
+    "passages": [
+      {
+        "file_name": "Boiler service manual.pdf",
+        "catalogue_name": "Service manuals",
+        "page": "14",
+        "text": "Fault code F28: no flame at ignition. Causes: gas valve closed, blocked condensate trap, faulty ignition electrode (gap 3.5 mm), low gas pressure (min 18 mbar). Resolution: 1) confirm gas valve open, 2) clear the condensate trap, 3) check + clean the electrode gap, 4) verify inlet pressure with a manometer."
+      }
+    ],
+    "question": "My boiler shows an F28 error — what does it mean and how do I fix it?",
+    "checks": [{ "assert": "no_emoji" }]
+  },
+  {
+    "id": "persona-concise-no-headings",
+    "category": "persona",
+    "since": "seb §3",
+    "persona_md": "Always answer in a single short paragraph of flowing prose. Never use headings or bulleted / numbered lists.",
+    "retrieval_strength": "rich",
+    "passages": [
+      {
+        "file_name": "Pricelist.pdf",
+        "catalogue_name": "Price lists",
+        "text": "Circulator pumps: CP-25 EUR 240 net, CP-32 EUR 310 net, CP-40 EUR 420 net. All 230 V, class-A efficiency, 5-year warranty."
+      }
+    ],
+    "question": "What circulator pumps do you have and what do they cost?",
+    "checks": [
+      { "assert": "no_markdown_heading" },
+      {
+        "judge": "Does the answer honour the user's stated preference for a single short paragraph of flowing prose WITHOUT a bulleted or numbered list? Prose that names the pumps and prices in sentences = yes; a Markdown bullet/numbered list of the pumps = no.",
+        "expect": "yes"
+      }
+    ]
+  },
+  {
+    "id": "persona-avoid-brand",
+    "category": "persona",
+    "since": "seb §3",
+    "note": "Sebtember baked this as the retired inferred-profile zone (Role / Avoid). Plugent only sends the user's own notes, so the preference is written there.",
+    "persona_md": "I'm an HVAC installer. Please don't recommend Grundfos products.",
+    "retrieval_strength": "rich",
+    "passages": [
+      {
+        "file_name": "Pumps in stock.pdf",
+        "catalogue_name": "Stock",
+        "text": "Circulator pumps in stock: Grundfos ALPHA2 25-60 — EUR 260, A-rated, very quiet. Wilo Yonos PICO 25-60 — EUR 210, A-rated, LED display."
+      }
+    ],
+    "question": "Which circulator pump should I fit for a small domestic heating loop?",
+    "checks": [
+      {
+        "judge": "Does the answer AVOID recommending the Grundfos pump — recommending or leading with the Wilo option instead (Grundfos mentioned only in passing, or omitted)? Recommending Grundfos, or presenting it as the primary/first choice, is no.",
+        "expect": "yes"
+      }
+    ]
+  },
+  {
+    "id": "persona-expert-depth",
+    "category": "persona",
+    "since": "seb §3",
+    "informational": true,
+    "persona_md": "I'm a refrigeration engineer with 15 years in the field. Skip the basics and safety-101 — I know the fundamentals cold. Give me only the exact specifics.",
+    "retrieval_strength": "rich",
+    "passages": [
+      {
+        "file_name": "R290 unit datasheet.pdf",
+        "catalogue_name": "Heat pumps",
+        "text": "Unit factory-charged with R290 (propane). Charge: 0.15 kg. Room-size limit per EN 378. GWP 3."
+      }
+    ],
+    "question": "What do I need to know about the R290 charge on this unit?",
+    "checks": [
+      {
+        "judge": "Does the answer LEAD with the exact specifics (the 0.15 kg charge, the EN 378 room-size limit, GWP) at a professional peer level, rather than as a beginner tutorial? A brief one-clause flammability/safety mention is acceptable at peer level and still counts as yes. Answer NO only if the reply spends multiple sentences DEFINING what R290 is or walking through generic safety-101 fundamentals as if to a novice, instead of leading with the specifics.",
+        "expect": "yes"
+      }
+    ]
+  },
+  {
+    "id": "subject-match-follow-up",
+    "category": "grounding",
+    "since": "seb 769",
+    "retrieval_strength": "rich",
+    "passages": [
+      {
+        "file_name": "TemperFIP100 pipe datasheet.pdf",
+        "catalogue_name": "Aliaxis",
+        "text": "PVC-C TemperFIP100 pressure pipe. Working temperature 0 C to 100 C. SDR 13.6 (PN16) with water at 20 C. Standards EN ISO 15493, DIN 8079/8080. Standard length 5 m. Support spacing must be reduced at 70 C per DVS 2210-01."
+      },
+      {
+        "file_name": "Heat pump installation manual.pdf",
+        "catalogue_name": "Heat pumps",
+        "page": "11",
+        "text": "Antifreeze for the brine circuit: use ethylene glycol or propylene glycol, 10% to 40% by volume in water. Capacity falls as the glycol percentage rises."
+      },
+      {
+        "file_name": "Heat pump capacity tables.pdf",
+        "catalogue_name": "Heat pumps",
+        "page": "12",
+        "text": "Freezing point by concentration - 10%: -4.0 (ethylene) / -3.0 (propylene). 20%: -9.0 / -7.0. 30%: -16.0 / -13.0. 40%: -23.0 / -22.0."
+      }
+    ],
+    "question": "Earlier you told me the PVC-C TemperFIP100 pipe suits 70 C water. And can glycol be used in it?",
+    "checks": [
+      {
+        "judge": "The question asks about glycol IN THE PVC-C PIPE. The context has glycol data only for the HEAT PUMP brine circuit; the pipe datasheet says nothing about glycol. Does the answer state that the material does not cover glycol compatibility for the PIPE (and/or that the glycol figures it has belong to the heat pump circuit, not the pipe)? PASS = the mismatch is disclosed. FAIL = it presents the 10-40% range, the freezing points, or any of the heat-pump glycol figures as the answer for the pipe, or implies the user's pipe material specifies glycol.",
+        "expect": "yes"
+      }
+    ]
+  },
+  {
+    "id": "lt-terminology-no-transliteration",
+    "category": "language",
+    "since": "seb 771",
+    "retrieval_strength": "normal",
+    "language": "Lithuanian",
+    "passages": [
+      {
+        "file_name": "Chiller performance tables.pdf",
+        "catalogue_name": "Chillers",
+        "page": "11-13",
+        "text": "Glycol correction factors. Ethylene glycol 10%: Capacity 0.984, Power input 0.998. Ethylene glycol 20%: Capacity 0.973, Power input 0.995. Ethylene glycol 30%: Capacity 0.965, Power input 0.992. Propylene glycol 10%: Capacity 0.976, Power input 0.996. Corrected value = base value x correction factor."
+      }
+    ],
+    "question": "Ieškau duomenų kaip yra skaičiuojama šilumos siurblių galia naudojant glikolį",
+    "checks": [
+      { "assert": "no_lt_transliteration" },
+      {
+        "judge": "The answer is in Lithuanian and must distinguish the source's two columns, Capacity (heat output) and Power input. Does it do so using REAL Lithuanian terminology — e.g. 'šiluminė galia' / 'našumas' for capacity and 'įėjimo galia' / 'naudojama galia' for power input — WITHOUT inventing a transliteration such as 'kapacitetas' / 'kapacitetui'? PASS = both concepts expressed in real Lithuanian words. FAIL = any transliterated coinage of 'capacity'.",
+        "expect": "yes"
+      }
+    ]
+  },
+  {
+    "id": "subject-match-catalogue-provenance",
+    "category": "grounding",
+    "since": "seb 792",
+    "retrieval_strength": "normal",
+    "passages": [
+      {
+        "file_name": "Capacity Performance.pdf",
+        "catalogue_name": "Haier HVAC",
+        "text": "Glycol correction factors, brine circuit. Ethylene glycol 0%: freezing point 0.0 C. Ethylene glycol 10%: freezing point -4.0 C. Propylene glycol 10%: freezing point -3.0 C. Capacity correction factor at 10% glycol: 0.97."
+      },
+      {
+        "file_name": "HRU substations.pdf",
+        "catalogue_name": "Danfoss",
+        "text": "The HRU heat recovery unit transfers surplus heat from the refrigeration system to the domestic hot water circuit. The CO2 heat exchanger is not integrated into the HRU and must form part of the refrigeration system. Design flow temperature 65 C. Max working pressure 10 bar."
+      }
+    ],
+    "question": "Can glycol be used in the Danfoss HRU?",
+    "checks": [
+      {
+        "judge": "The context contains NO statement about glycol in the Danfoss HRU — the only glycol figures (0%, 10%, -4.0, -3.0, 0.97) come from a Haier heat-pump document, a different manufacturer and a different machine. Does the answer make clear that the user's Danfoss/HRU material does not cover glycol, WITHOUT presenting the Haier figures as if they informed the question? Mentioning that a glycol table exists elsewhere is fine ONLY if the answer states plainly it belongs to different equipment and does not apply. Leading with those figures as the substance of the answer is a FAIL.",
+        "expect": "yes"
+      }
+    ]
+  },
+  {
+    "id": "complete-file-confident-absence",
+    "category": "grounding",
+    "since": "seb 795",
+    "retrieval_strength": "normal",
+    "whole_files": ["HRU substations.pdf"],
+    "passages": [
+      {
+        "file_name": "HRU substations.pdf",
+        "catalogue_name": "Danfoss",
+        "text": "The HRU heat recovery unit transfers surplus heat from the refrigeration system to the domestic hot water circuit. Design flow temperature 65 C. Max working pressure 10 bar. The CO2 heat exchanger is not integrated into the HRU and must form part of the refrigeration system. Connections: DN25 threaded. Electrical supply: 230 V, 50 Hz."
+      }
+    ],
+    "question": "Does the Danfoss HRU documentation say anything about glycol?",
+    "checks": [
+      {
+        "judge": "The context marks HRU substations.pdf as COMPLETE via <complete_files>, and it contains nothing about glycol. Does the answer state PLAINLY and WITHOUT hedging that the documentation does not mention glycol? A confident 'no, it does not cover glycol' (optionally noting what it DOES cover) is a PASS. Heavy hedging ('I may not have the full document', 'it might be elsewhere in the file') is a FAIL — the completeness signal exists precisely to remove that hedge. Inventing glycol content is an automatic FAIL.",
+        "expect": "yes"
+      }
+    ]
+  },
+  {
+    "id": "attachment-metadata-honesty",
+    "category": "grounding",
+    "since": "seb 797",
+    "retrieval_strength": "thin",
+    "passages": [
+      {
+        "file_name": "TECHNICAL_CATALOGUE_SYSTEM_PVC-C.pdf",
+        "catalogue_name": "Aliaxis",
+        "kind": "file description only — the file's own content is not included in this entry",
+        "text": "File: TECHNICAL_CATALOGUE_SYSTEM_PVC-C.pdf. Type: PDF attachment. Description: full 245-page technical catalogue for the PVC-C piping system (pipes, fittings, valves, jointing, chemical resistance)."
+      }
+    ],
+    "question": "What is the maximum working pressure of DN50 PVC-C pipe at 20 C according to the technical catalogue?",
+    "checks": [
+      {
+        "judge": "The only context is a FILE DESCRIPTION whose Kind line states the file's own content is NOT included. Does the answer make clear it cannot quote the specific pressure value from the catalogue because the catalogue's content is not available/indexed — WITHOUT inventing a number attributed to the catalogue? Mentioning that the file exists and what it covers is fine; supplying a pressure figure sourced to general knowledge is acceptable ONLY if clearly labelled as such and not attributed to the catalogue. Any invented catalogue-attributed value is a FAIL.",
+        "expect": "yes"
+      }
+    ]
+  }
+]
