@@ -7,8 +7,10 @@
  *   3. the material generation + grounding gaps — the ones Chat's prompt can fix — go to a
  *      proposer, which writes ONE prompt edit and fresh eval cases;
  *   4. the full report (users' data) is saved PRIVATELY: Plugent's Firestore `chat_reviews`, and
- *      `review-out/report.json` (gitignored). `review-out/proposal.json` holds only the public-safe
- *      proposal; stdout prints counts and the proposal, never a question, passage or answer.
+ *      `review-out/report.json` (gitignored). `review-out/proposal.json` holds only counts and the
+ *      public-safe proposal, and is written on EVERY run (also "nothing to review"), so the routine
+ *      never needs to read the log; stdout prints counts and the proposal, never a question, passage
+ *      or answer.
  *
  * ⚠️ Runs where its logs are private (a local shell, a Claude routine) — NEVER in GitHub Actions on
  * this public repo, whose logs anyone can read.
@@ -62,11 +64,18 @@ async function pool<T, R>(items: T[], n: number, fn: (x: T) => Promise<R>): Prom
   return out;
 }
 
+/** `review-out/proposal.json`: counts and the proposal only — the one output a commit or a PR may carry. */
+function writeProposal(summary: Record<string, unknown>) {
+  mkdirSync(OUT, { recursive: true });
+  writeFileSync(path.join(OUT, "proposal.json"), JSON.stringify(summary, null, 2));
+}
+
 async function main() {
   const db = plugentDb();
   const conversations = await loadConversations(db, DAYS, LIMIT);
   const turns = conversations.reduce((n, c) => n + c.turns.length, 0);
   const traced = conversations.reduce((n, c) => n + c.turns.filter((t) => t.trace).length, 0);
+  const counts = { windowDays: DAYS, conversations: conversations.length, turns, traced };
   console.log(
     `\n🔎 Chat review — last ${DAYS} days, prompt ${CHAT_PROMPT_VERSION}, judge ${JUDGE_MODEL}`,
   );
@@ -80,7 +89,14 @@ async function main() {
     return;
   }
   if (conversations.length === 0) {
-    console.log("   nothing to review.\n");
+    writeProposal({
+      at: new Date().toISOString(),
+      promptVersion: CHAT_PROMPT_VERSION,
+      counts,
+      tally: null,
+      proposal: { error: "nothing to review" },
+    });
+    console.log(`   nothing to review. ${OUT}/proposal.json says so.\n`);
     return;
   }
 
@@ -125,14 +141,14 @@ async function main() {
     path.join(OUT, "report.json"),
     JSON.stringify({ id: ref.id, at, tally: t, results, proposal }, null, 2),
   );
-  writeFileSync(
-    path.join(OUT, "proposal.json"),
-    JSON.stringify(
-      { reviewId: ref.id, at, promptVersion: CHAT_PROMPT_VERSION, tally: t, proposal },
-      null,
-      2,
-    ),
-  );
+  writeProposal({
+    reviewId: ref.id,
+    at,
+    promptVersion: CHAT_PROMPT_VERSION,
+    counts,
+    tally: t,
+    proposal,
+  });
   console.log(
     `\n   saved: chat_reviews/${ref.id} · ${OUT}/report.json (private) · ${OUT}/proposal.json\n`,
   );
