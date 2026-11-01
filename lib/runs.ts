@@ -3,10 +3,16 @@
  * turns under `turns/{turnId}`. Under the user's own path, so a run id from a URL can never
  * reach another user's run, and listing needs no composite index.
  *
+ * ⚠️ A Chat turn's TRACE (`AskTrace`: the passages the model saw, the prompt version, what the
+ * answer named) lives BESIDE it at `traces/{turnId}`, never on the turn: the turn is history
+ * the user reads, the trace is evidence the Chat review reads, and a Firestore TTL on
+ * `expireAt` deletes the whole document it sits on. Under the run, so deleting a run or an
+ * account (`recursiveDelete`) takes the traces with it.
+ *
  * ⚠️ ONLY THIS MODULE TOUCHES THE COLLECTIONS — every caller passes the session's uid.
  */
 import "server-only";
-import { FieldValue, type Timestamp } from "firebase-admin/firestore";
+import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import type { AskResult, AskSource } from "@/lib/agents/ask";
 import type { AgentId } from "@/lib/agents/registry";
 import type { StepData, StepOutcomeKind } from "@/lib/agents/troubleshoot-prompts";
@@ -17,6 +23,8 @@ import { linkUnpaid } from "@/lib/unpaid";
 import type { TurnCharge } from "@/lib/usage";
 
 export const MAX_TITLE_CHARS = 80;
+/** How long a turn's trace is kept for the Chat review (the TTL field `expireAt`). */
+export const TRACE_TTL_DAYS = 30;
 
 export interface RunSummary {
   id: string;
@@ -283,6 +291,14 @@ export async function saveTurn(
           createdAt: now,
         },
   );
+  if (result.trace) {
+    batch.set(runRef.collection("traces").doc(turnRef.id), {
+      ...result.trace,
+      agent,
+      createdAt: now,
+      expireAt: Timestamp.fromMillis(Date.now() + TRACE_TTL_DAYS * 86_400_000),
+    });
+  }
   linkUnpaid(batch, result.unpaid, turnRef);
   await batch.commit();
   return { runId: runRef.id, turnId: turnRef.id };

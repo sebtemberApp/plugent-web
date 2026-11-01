@@ -39,13 +39,14 @@ import {
   type HistoryMessage,
   readAnswer,
 } from "@/lib/agents/ask-prompt";
-import { SYSTEM_INSTRUCTION_GPT } from "@/lib/agents/chat-prompt";
+import { CHAT_PROMPT_VERSION, SYSTEM_INSTRUCTION_GPT } from "@/lib/agents/chat-prompt";
 import { sanitizeClarify } from "@/lib/agents/clarify";
 import { readUserContext } from "@/lib/agents/profile";
 import {
   type ChargeUsage,
   getBalance,
   getKnowledgeCatalogues,
+  type KnowledgeSearch,
   SebtemberApiError,
   searchKnowledge,
 } from "@/lib/sebtember/products";
@@ -98,6 +99,72 @@ export function billedAnswerTokens(usage: AskUsage): number {
   );
 }
 
+/**
+ * What the model saw and how it answered, for the review that improves Chat (the self-improvement
+ * loop): the search sebtember returned (the passages verbatim, their strength, the complete files,
+ * the quality notes), the prompt version, model and mode, and the passages the answer named. Saved
+ * BESIDE the turn (`traces/{turnId}`, `lib/runs.ts`) with a 30-day TTL, never on it, and never sent
+ * to the browser: the passages are the user's documents.
+ */
+export interface AskTrace {
+  promptVersion: string;
+  model: string;
+  mode: AskMode;
+  /** Earlier messages the model continued (0 = a first question). */
+  historyLength: number;
+  retrievalStrength: string;
+  passages: Array<{
+    catalogue_id: string;
+    catalogue_name: string | null;
+    file_name: string;
+    page: string | null;
+    section: string | null;
+    collection_name: string | null;
+    kind: string | null;
+    is_note: boolean;
+    text: string;
+  }>;
+  wholeFiles: string[];
+  sourceQuality: { filename: string; issues: string[] }[];
+  /** The publishers' guidance was prepended to the passages. */
+  guidance: boolean;
+  /** The passage numbers the answer's SOURCES line named (null: it named none). */
+  used: number[] | null;
+  /** The model asked back instead of answering. */
+  clarify: boolean;
+  stopped: boolean;
+}
+
+function traceOf(
+  search: KnowledgeSearch,
+  mode: AskMode,
+  historyLength: number,
+  outcome: { used: number[] | null; clarify: boolean; stopped: boolean },
+): AskTrace {
+  return {
+    promptVersion: CHAT_PROMPT_VERSION,
+    model: ASK_MODEL,
+    mode,
+    historyLength,
+    retrievalStrength: search.retrievalStrength,
+    passages: search.passages.map((p) => ({
+      catalogue_id: p.catalogue_id,
+      catalogue_name: p.catalogue_name,
+      file_name: p.file_name,
+      page: p.page,
+      section: p.section ?? null,
+      collection_name: p.collection_name ?? null,
+      kind: p.kind ?? null,
+      is_note: p.is_note === true,
+      text: p.text,
+    })),
+    wholeFiles: search.whole_files ?? [],
+    sourceQuality: search.source_quality ?? [],
+    guidance: Boolean(search.catalogue_guidance?.trim()),
+    ...outcome,
+  };
+}
+
 export type AskResult =
   | {
       kind: "answer";
@@ -117,6 +184,8 @@ export type AskResult =
       stopped?: boolean;
       /** Lines whose charge failed and were kept for a retry: linked to the saved turn. */
       unpaid?: TurnCharge[];
+      /** Saved beside the turn, never sent to the browser (`AskTrace`). */
+      trace?: AskTrace;
     }
   | {
       kind: "not_covered";
@@ -124,6 +193,7 @@ export type AskResult =
       balanceAfter: number | null;
       charges?: TurnCharge[];
       unpaid?: TurnCharge[];
+      trace?: AskTrace;
     };
 
 export class AskRefused extends Error {
@@ -191,6 +261,7 @@ export async function runAsk(
       tokens: searchTokens,
       balanceAfter: search.balanceAfter,
       charges: searchCharge(runId, search),
+      trace: traceOf(search, mode, history.length, { used: null, clarify: false, stopped: false }),
     };
   }
 
@@ -214,6 +285,7 @@ export async function runAsk(
       charged: true,
       stopped: true,
       charges: searchCharge(runId, search),
+      trace: traceOf(search, mode, history.length, { used: null, clarify: false, stopped: true }),
     };
   }
 
@@ -306,6 +378,7 @@ export async function runAsk(
         ...agentCharge(`${runId}-answer`, "Question back", answerTokens, usage, charged),
       ],
       unpaid: unpaidCharge(`${runId}-answer`, "Question back", answerTokens, usage, charged),
+      trace: traceOf(search, mode, history.length, { used: null, clarify: true, stopped: false }),
     };
   }
 
@@ -350,5 +423,6 @@ export async function runAsk(
       usage,
       charged,
     ),
+    trace: traceOf(search, mode, history.length, { used, clarify: false, stopped }),
   };
 }

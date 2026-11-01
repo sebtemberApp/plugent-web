@@ -25,6 +25,13 @@ built like PeakPick. It NEVER reads sebtember's Firestore or vectors directly. T
 - ⚠️ **Plugent's Firestore is SERVER-ONLY** (`lib/firebase/admin.ts`, the same service-account key;
   `firestore.rules` denies every client). Runs live under `users/{uid}/runs/{runId}` + `turns/`, so a run id
   can never reach another user's run; only `lib/runs.ts` touches them. Suggestions: `agent_suggestions`; answer feedback: `answer_feedback` (the stored run names the agent and quotes the turn); rate limits: `rate_limits/{uid}_{scope}_{minute}` (`lib/rate-limit.ts`, 20 runs a minute, every agent route); a deleted run's charges: `users/{uid}/deleted_runs` (the Usage page keeps them); preferences (agents turned off, Chat's default mode): `users/{uid}`, only `lib/prefs.ts`. An agent turned off is hidden from the sidebar and Home and its route refuses (403 `agent_off`).
+- ⚠️ **A CHAT TURN'S TRACE IS EVIDENCE, KEPT 30 DAYS, NEVER PUBLISHED** — `users/{uid}/runs/{runId}/traces/{turnId}`
+  (`AskTrace`, `lib/agents/ask.ts`): the passages the model saw verbatim, strength, prompt version, model, mode, what
+  the answer named. Written with the turn by `saveTurn`, never on it (the TTL on `expireAt` deletes the whole document),
+  never sent to the browser (the ask route strips it). The Chat review reads it across users (collection-group index on
+  `traces.createdAt`, `firestore.indexes.json`). ⚠️ This repo is PUBLIC: nothing read from a trace or a turn — a
+  question, a passage, an answer — may land in a commit, a PR, an issue or a CI log; the review's evidence stays in
+  Plugent's Firestore, and an eval case it proposes is written fresh, not copied.
 - ⚠️ **CHAT'S PROMPT IS PLUGENT'S OWN** (since 2026-11-01; sebtember.app's chat is retired and its copy is frozen for
   the Knowledge Widget and Slack). `lib/agents/chat-prompt.ts` (it began as sebtember's `SYSTEM_INSTRUCTION_GPT`
   `gpt-3`, language block, chunk header and version reminder) is edited HERE, never copied in; bump

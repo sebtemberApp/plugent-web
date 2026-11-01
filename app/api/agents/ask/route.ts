@@ -163,9 +163,11 @@ async function answer(
         return null;
       },
     );
+    // The trace is saved beside the turn and never sent to the browser (`AskTrace`).
+    const { trace: _trace, ...shown } = result;
     return {
       type: "done",
-      ...result,
+      ...shown,
       runId: saved?.runId ?? null,
       turnId: saved?.turnId ?? null,
     };

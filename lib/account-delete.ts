@@ -5,7 +5,7 @@
  * its deletion cascade calls `/api/account/deleted` here, server to server. This removes
  * everything Plugent keeps for that uid, in Plugent's own Firestore:
  *
- *   - `users/{uid}` and every subcollection (runs + turns + photos, deleted_runs, shares
+ *   - `users/{uid}` and every subcollection (runs + turns + traces + photos, deleted_runs, shares
  *     pointers, ask_pending, ask_stops, preferences), with `recursiveDelete`;
  *   - the PUBLIC shared answers they made (`shared_answers` where `owner_uid` is them): a
  *     snapshot lives outside `users/{uid}` and would outlive the account otherwise;
