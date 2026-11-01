@@ -350,18 +350,45 @@ export async function renameRun(uid: string, runId: string, title: string): Prom
  * `deleted_runs/{runId}` record (no question, no answer), so the Usage page still shows what the
  * wallet really paid (audit B11).
  */
-export async function deleteRun(uid: string, runId: string): Promise<void> {
+/** A Chat, Specification/Quotation or Troubleshooting run a request is still answering. */
+export async function isRunBusy(uid: string, runId: string): Promise<boolean> {
+  const doc = await runs(uid).doc(runId).get();
+  const running = doc.get("running");
+  if (!doc.exists || doc.get("agent") === "pricing" || !running) return false;
+  const stale = doc.get("agent") === "troubleshooting" ? TS_STALE_MS : RUN_STALE_MS;
+  return Date.now() - millis(running) < stale;
+}
+
+export async function deleteRun(uid: string, runId: string): Promise<"busy" | undefined> {
   const ref = runs(uid).doc(runId);
-  const [doc, turns] = await Promise.all([ref.get(), ref.collection("turns").get()]);
+  const [doc, turns, kept] = await Promise.all([
+    ref.get(),
+    ref.collection("turns").get(),
+    plugentDb().collection("unpaid_charges").where("uid", "==", uid).get(),
+  ]);
+  // ⚠️ A run still answering is not deleted: its answer was already charged, and its save (an
+  // update of this run) would fail on the missing document, so the charge would land on no turn
+  // and in no record. A Pricing run is the exception: deleting it cancels its step on sebtember.
+  const running = doc.get("running");
+  if (doc.exists && doc.get("agent") !== "pricing" && running) {
+    const stale = doc.get("agent") === "troubleshooting" ? TS_STALE_MS : RUN_STALE_MS;
+    if (Date.now() - millis(running) < stale) return "busy";
+  }
+  // Lines of this run still kept unpaid: paid later, they go to the deleted run's record.
+  const unpaidHere = kept.docs.filter((d) =>
+    String(d.get("turnPath") ?? "").startsWith(`${ref.path}/`),
+  );
   if (doc.exists) {
     const spent = turns.docs.flatMap((t): Spent[] => {
       const at = millis(t.get("createdAt"));
       const charges = t.get("charges");
       if (Array.isArray(charges) && charges.length > 0) return [{ at, charges }];
       const tokens = Number(t.get("tokens") ?? 0);
+      // A turn whose only line is still unpaid has no `charges`: not spent (yet).
+      if (unpaidHere.some((d) => d.get("turnPath") === t.ref.path)) return [];
       return tokens > 0 ? [{ at, tokens }] : [];
     });
-    if (spent.length > 0) {
+    if (spent.length > 0 || unpaidHere.length > 0) {
       await deletedRuns(uid)
         .doc(runId)
         .set({
@@ -371,9 +398,16 @@ export async function deleteRun(uid: string, runId: string): Promise<void> {
           deletedAt: FieldValue.serverTimestamp(),
           spent,
         });
+      const record = deletedRuns(uid).doc(runId).path;
+      await Promise.all(
+        unpaidHere.map((d) =>
+          d.ref.update({ turnPath: FieldValue.delete(), deletedRunPath: record }),
+        ),
+      );
     }
   }
   await plugentDb().recursiveDelete(ref);
+  return undefined;
 }
 
 function deletedRuns(uid: string) {
@@ -626,6 +660,61 @@ export async function readPricingRun(uid: string, runId: string): Promise<Pricin
     pricingId,
     source: String(doc.get("source") ?? "personal"),
   };
+}
+
+/** How long a claimed match step holds the run (above the route's 300 s, so a live one is never taken). */
+const MATCH_CLAIM_MS = 310_000;
+
+/**
+ * Claims the run's next match step and names its request id — ON THE SERVER, never from the
+ * browser: a client-chosen id let a replayed id read as a duplicate line on sebtember (the work
+ * unbilled), and two tabs or a reload sent continuations under different ids (charged twice).
+ * A new match mints an id; a continuation takes the stored one and the next number. One step at a
+ * time per run: "busy" while another holds it, "no_match" for a continuation with no match.
+ */
+export async function claimPricingMatch(
+  uid: string,
+  runId: string,
+  kind: "new" | "continue",
+): Promise<{ requestId: string; n: number } | "busy" | "no_match"> {
+  const ref = runs(uid).doc(runId);
+  return plugentDb().runTransaction(async (tx) => {
+    const doc = await tx.get(ref);
+    const busyUntil = doc.get("matchBusyUntil") as Timestamp | undefined;
+    if (busyUntil && busyUntil.toMillis() > Date.now()) return "busy" as const;
+    const stored = doc.get("matchRequestId");
+    let requestId: string;
+    let n: number;
+    if (kind === "new") {
+      requestId = `${runId}-${crypto.randomUUID().slice(0, 8)}`;
+      n = 0;
+    } else {
+      if (typeof stored !== "string" || !stored) return "no_match" as const;
+      requestId = stored;
+      n = Number(doc.get("matchCont") ?? 0) + 1;
+    }
+    tx.update(ref, {
+      matchRequestId: requestId,
+      matchCont: n,
+      matchBusyUntil: Timestamp.fromMillis(Date.now() + MATCH_CLAIM_MS),
+    });
+    return { requestId, n };
+  });
+}
+
+/** Frees the run after a match step; a continuation that failed gives its number back for a retry. */
+export async function releasePricingMatch(
+  uid: string,
+  runId: string,
+  claim: { n: number },
+  failed: boolean,
+): Promise<void> {
+  await runs(uid)
+    .doc(runId)
+    .update({
+      matchBusyUntil: FieldValue.delete(),
+      ...(failed && claim.n > 0 ? { matchCont: claim.n - 1 } : {}),
+    });
 }
 
 /** One step sebtember charged: kept as a turn (with its usage) and added to the run's total. */

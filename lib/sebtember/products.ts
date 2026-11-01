@@ -64,11 +64,36 @@ function settings() {
   return { origin, audience, credentials: JSON.parse(key) };
 }
 
+/**
+ * One ID token per process, reused until 5 minutes before it expires (Google issues them for an
+ * hour): every call minting its own added a round trip to Google before each call to sebtember,
+ * and a fan-out (the Knowledge page, a 2 s pricing poll) minted one per request.
+ */
+const tokenCache = globalThis as typeof globalThis & {
+  __plugentIdToken?: { key: string; idToken: string; expMs: number };
+};
+
 async function mintIdToken(): Promise<{ origin: string; idToken: string }> {
   const { origin, audience, credentials } = settings();
+  const key = `${audience}|${credentials.client_email}`;
+  const cached = tokenCache.__plugentIdToken;
+  if (cached && cached.key === key && cached.expMs - Date.now() > 5 * 60_000)
+    return { origin, idToken: cached.idToken };
   const client = await new GoogleAuth({ credentials }).getIdTokenClient(audience);
-  return { origin, idToken: await client.idTokenProvider.fetchIdToken(audience) };
+  const idToken = await client.idTokenProvider.fetchIdToken(audience);
+  let expMs = Date.now() + 10 * 60_000;
+  try {
+    const exp = JSON.parse(Buffer.from(idToken.split(".")[1] ?? "", "base64url").toString()).exp;
+    if (typeof exp === "number") expMs = exp * 1000;
+  } catch {
+    // An unreadable payload is still a token: keep it for 10 minutes.
+  }
+  tokenCache.__plugentIdToken = { key, idToken, expMs };
+  return { origin, idToken };
 }
+
+/** How long one call to sebtember may take before Plugent gives up on it (`post`'s default). */
+export const SEBTEMBER_TIMEOUT_MS = 60_000;
 
 /**
  * What sebtember will see: the claims of the ID token Plugent sends (never the token), and
@@ -101,18 +126,41 @@ export async function diagnoseProductApi(uid: string) {
   };
 }
 
-export async function post<T>(path: string, body: unknown): Promise<T> {
+/**
+ * ⚠️ FAILS CLOSED. Only a 2xx JSON object is an answer: a redirect (to a login page, say) or a
+ * 2xx whose body is not JSON throws, because `{}` read as an answer passed every balance gate
+ * (`undefined < undefined` is false) and counted every charge as paid. A call that takes longer
+ * than `timeoutMs` is aborted, so a hung sebtember cannot use up the route's 300 s before a failed
+ * charge is kept.
+ */
+export async function post<T>(
+  path: string,
+  body: unknown,
+  { timeoutMs = SEBTEMBER_TIMEOUT_MS }: { timeoutMs?: number } = {},
+): Promise<T> {
   const { origin, idToken } = await mintIdToken();
-  const res = await fetch(new URL(path, origin), {
-    method: "POST",
-    headers: { authorization: `Bearer ${idToken}`, "content-type": "application/json" },
-    body: JSON.stringify(body),
-    cache: "no-store",
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new SebtemberApiError(res.status, String(data.error ?? "unknown"));
+  let res: Response;
+  try {
+    res = await fetch(new URL(path, origin), {
+      method: "POST",
+      headers: { authorization: `Bearer ${idToken}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+      cache: "no-store",
+      redirect: "manual",
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (err) {
+    if ((err as Error)?.name === "TimeoutError") throw new SebtemberApiError(504, "timeout");
+    throw err;
+  }
+  const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!res.ok) throw new SebtemberApiError(res.status, String(data?.error ?? "unknown"));
+  if (res.status >= 300 || !data || typeof data !== "object" || Array.isArray(data))
+    throw new SebtemberApiError(502, "bad_response");
   return data as T;
 }
+
+const isNumber = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 
 export interface KnowledgeCatalogues {
   /** Always true since sebtember Step 1178 (every catalogue is connected by default); false
@@ -196,12 +244,35 @@ export function updateProfile(
   return post<ProductProfile>("/api/products/profile/update", { uid, ...update });
 }
 
-export function getBalance(uid: string): Promise<ProductBalance> {
-  return post<ProductBalance>("/api/products/balance", { uid });
+/** The wallet, checked: an answer without a source and numeric figures is an error, never a pass. */
+export async function getBalance(uid: string): Promise<ProductBalance> {
+  const b = await post<ProductBalance>("/api/products/balance", { uid }, { timeoutMs: 20_000 });
+  if (typeof b.source !== "string" || !b.source || !isNumber(b.balance) || !isNumber(b.minimum))
+    throw new SebtemberApiError(502, "bad_balance");
+  return b;
 }
 
-export function charge(uid: string, source: string, lines: ChargeLine[]): Promise<ChargeResult> {
-  return post<ChargeResult>("/api/products/charge", { uid, source, lines });
+/**
+ * Charges lines, checked: sebtember must account for EVERY line as charged or duplicate, or the
+ * call is an error — so `chargeOrKeep` keeps the line instead of counting it paid.
+ */
+export async function charge(
+  uid: string,
+  source: string,
+  lines: ChargeLine[],
+): Promise<ChargeResult> {
+  const r = await post<ChargeResult>(
+    "/api/products/charge",
+    { uid, source, lines },
+    { timeoutMs: 20_000 },
+  );
+  const seen = new Set([
+    ...(Array.isArray(r.charged) ? r.charged : []),
+    ...(Array.isArray(r.duplicates) ? r.duplicates : []),
+  ]);
+  if (!lines.every((l) => l.tokens <= 0 || seen.has(l.id)))
+    throw new SebtemberApiError(502, "bad_charge");
+  return r;
 }
 
 export interface KnowledgePassage {
@@ -287,8 +358,10 @@ export async function postForFile(
     headers: { authorization: `Bearer ${idToken}`, "content-type": "application/json" },
     body: JSON.stringify(body),
     cache: "no-store",
+    redirect: "manual",
+    signal: AbortSignal.timeout(SEBTEMBER_TIMEOUT_MS),
   });
-  if (!res.ok) {
+  if (!res.ok || res.status >= 300) {
     const data = await res.json().catch(() => ({}));
     throw new SebtemberApiError(res.status, String(data.error ?? "unknown"));
   }

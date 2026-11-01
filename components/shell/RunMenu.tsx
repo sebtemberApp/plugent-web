@@ -73,7 +73,12 @@ export function RunMenu({
   function remove() {
     start(async () => {
       const res = await deleteRunAction(runId, leaveTo);
-      if (!res.ok) setError("Couldn't delete. Try again.");
+      if (!res.ok)
+        setError(
+          "error" in res && res.error === "busy"
+            ? "It's still answering. Delete it when the answer is in."
+            : "Couldn't delete. Try again.",
+        );
       setConfirming(false);
     });
   }

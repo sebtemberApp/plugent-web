@@ -226,167 +226,184 @@ async function respond(
   let balanceAfter: number | null = null;
   const next: TsState = { ...state, problem };
 
-  // ---- 1. clarify-or-proceed, on a text turn early in the run.
-  let proceed = true;
-  if (
-    !picked &&
-    (state.status === "draft" || state.status === "clarifying") &&
-    state.clarifyCount < TS_LIMITS.MAX_CLARIFY_TURNS
-  ) {
-    const answered = clarifyPairs(turns);
-    const result = await generateText({
-      model: TS_MODEL,
-      messages: userContent(
-        buildClarifyPrompt({
-          problem: sanitizeForPrompt(problem),
-          answered,
-          hasPhoto: photo !== null,
-          clarifyTurnsLeft: TS_LIMITS.MAX_CLARIFY_TURNS - state.clarifyCount,
-          languageName: (await userContext).languageName,
-        }),
-        photo,
-      ),
-      tools: { ask_clarification: CLARIFY_TOOL },
-      toolChoice: "auto",
-      maxOutputTokens: 2000,
-      timeout: MODEL_TIMEOUT_MS,
-      providerOptions: { openai: { reasoningEffort: "low" } },
-    });
-    usages.push(result.totalUsage);
-    const call = result.toolCalls.find((c) => c.toolName === "ask_clarification");
-    const clarify = call ? sanitizeClarify(call.input) : null;
-    if (clarify) {
-      out.push({ role: "clarify", ...clarify });
-      next.status = "clarifying";
-      next.clarifyCount += 1;
-      proceed = false;
-    }
-  }
-
-  // ---- 2. the next step, grounded.
-  if (proceed) {
-    if (!picked && (state.status === "draft" || state.status === "clarifying")) {
-      out.push({ role: "context" });
-    }
-    const catalogueInfo = getKnowledgeCatalogues(uid)
-      .then(
-        ({ catalogues }) =>
-          new Map<string, CatalogueInfo>(
-            catalogues.map((c) => [c.id, { library: c.library === true, owner: c.owner }]),
-          ),
-      )
-      .catch(() => new Map<string, CatalogueInfo>());
-    const query = picked ? `${problem}\n${picked.title}: ${picked.outcomeLabel}` : problem;
-    let search: Awaited<ReturnType<typeof searchKnowledge>>;
-    try {
-      search = await searchKnowledge(
-        uid,
-        wallet.source,
-        sanitizeForPrompt(query, 2000),
-        requestId,
-        TS_LIMITS.PASSAGES,
-      );
-    } catch (err) {
-      if (err instanceof SebtemberApiError && err.code === "not_connected") {
-        throw new AskRefused("not_connected");
+  // ⚠️ Model work that FINISHED is paid for even when a later stage throws (the search fails,
+  // the step times out or does not parse): it was dropped, and every Retry ran it again free.
+  try {
+    // ---- 1. clarify-or-proceed, on a text turn early in the run.
+    let proceed = true;
+    if (
+      !picked &&
+      (state.status === "draft" || state.status === "clarifying") &&
+      state.clarifyCount < TS_LIMITS.MAX_CLARIFY_TURNS
+    ) {
+      const answered = clarifyPairs(turns);
+      const result = await generateText({
+        model: TS_MODEL,
+        messages: userContent(
+          buildClarifyPrompt({
+            problem: sanitizeForPrompt(problem),
+            answered,
+            hasPhoto: photo !== null,
+            clarifyTurnsLeft: TS_LIMITS.MAX_CLARIFY_TURNS - state.clarifyCount,
+            languageName: (await userContext).languageName,
+          }),
+          photo,
+        ),
+        tools: { ask_clarification: CLARIFY_TOOL },
+        toolChoice: "auto",
+        maxOutputTokens: 2000,
+        timeout: MODEL_TIMEOUT_MS,
+        providerOptions: { openai: { reasoningEffort: "low" } },
+      });
+      usages.push(result.totalUsage);
+      const call = result.toolCalls.find((c) => c.toolName === "ask_clarification");
+      const clarify = call ? sanitizeClarify(call.input) : null;
+      if (clarify) {
+        out.push({ role: "clarify", ...clarify });
+        next.status = "clarifying";
+        next.clarifyCount += 1;
+        proceed = false;
       }
-      throw err;
     }
-    searchTokens = search.charged.tokens;
-    searchCharges = searchCharge(requestId, search);
-    balanceAfter = search.balanceAfter;
-    const reference = search.passages
-      .map(
-        (p) =>
-          `--- ${[p.file_name, p.page ? `p. ${p.page}` : null].filter(Boolean).join(", ")}\n${p.text}`,
-      )
-      .join("\n\n")
-      .slice(0, TS_LIMITS.REFERENCE_MAX_CHARS);
 
-    const tried: TriedStep[] = turns.flatMap((t) =>
-      t.role === "step" && t.done
-        ? [
-            {
-              index: t.step.index,
-              title: t.step.title,
-              outcomeKind: t.done.kind,
-              outcomeLabel: t.done.label,
-            },
-          ]
-        : [],
-    );
-    const nextIndex = state.stepCount + 1;
-    const result = await generateText({
-      model: TS_MODEL,
-      messages: userContent(
-        buildStepPrompt({
-          problem: sanitizeForPrompt(problem),
-          reference,
-          tried: picked ? [...tried, picked] : tried,
-          lastOutcome: picked,
-          nextIndex,
-          stepsLeft: Math.max(TS_LIMITS.MAX_STEPS - nextIndex, 0),
-          languageName: (await userContext).languageName,
-        }),
-        photo,
-      ),
-      maxOutputTokens: 3000,
-      timeout: MODEL_TIMEOUT_MS,
-      providerOptions: { openai: { reasoningEffort: "low" } },
-    });
-    usages.push(result.totalUsage);
-    let parsed = parseStepOutput(result.text);
-    if (!parsed) throw new Error("step output did not parse");
-    // ⚠️ The user's fact wins.
-    if (picked?.outcomeKind === "fixed" && parsed.kind !== "resolved") {
-      parsed = {
-        kind: "resolved",
-        summary: parsed.kind === "exhausted" ? parsed.summary : "The problem is fixed.",
-      };
-    }
-    // The cap: after the last permitted step, nothing but an ending.
-    if (parsed.kind === "step" && nextIndex > TS_LIMITS.MAX_STEPS) {
-      parsed = {
-        kind: "exhausted",
-        summary: "That is every procedure the documents give for this problem.",
-      };
-    }
-    const sources = stepSources(search.passages, await catalogueInfo);
-    // Sebtember's troubleshooting gaps: a thin search, or the procedures ran out (`exhausted`,
-    // the cap included) on a search that did find the documents. A `fixed` is never a gap.
-    const strength = search.retrievalStrength;
-    report = {
-      function: "troubleshooting",
-      requestId,
-      passages: search.passages,
-      retrievalStrength: strength,
-      gap:
-        strength === "thin"
-          ? { reason: "thin", query: problem }
-          : parsed.kind === "exhausted" && (strength === "normal" || strength === "rich")
-            ? { reason: "no_procedure", query: problem }
-            : undefined,
-    };
-    if (parsed.kind === "step") {
-      out.push({
-        role: "step",
-        step: { index: nextIndex, ...parsed.step },
-        sources,
-        done: null,
-        tokens: 0,
+    // ---- 2. the next step, grounded.
+    if (proceed) {
+      if (!picked && (state.status === "draft" || state.status === "clarifying")) {
+        out.push({ role: "context" });
+      }
+      const catalogueInfo = getKnowledgeCatalogues(uid)
+        .then(
+          ({ catalogues }) =>
+            new Map<string, CatalogueInfo>(
+              catalogues.map((c) => [c.id, { library: c.library === true, owner: c.owner }]),
+            ),
+        )
+        .catch(() => new Map<string, CatalogueInfo>());
+      const query = picked ? `${problem}\n${picked.title}: ${picked.outcomeLabel}` : problem;
+      let search: Awaited<ReturnType<typeof searchKnowledge>>;
+      try {
+        search = await searchKnowledge(
+          uid,
+          wallet.source,
+          sanitizeForPrompt(query, 2000),
+          requestId,
+          TS_LIMITS.PASSAGES,
+        );
+      } catch (err) {
+        if (err instanceof SebtemberApiError && err.code === "not_connected") {
+          throw new AskRefused("not_connected");
+        }
+        throw err;
+      }
+      searchTokens = search.charged.tokens;
+      searchCharges = searchCharge(requestId, search);
+      balanceAfter = search.balanceAfter;
+      const reference = search.passages
+        .map(
+          (p) =>
+            `--- ${[p.file_name, p.page ? `p. ${p.page}` : null].filter(Boolean).join(", ")}\n${p.text}`,
+        )
+        .join("\n\n")
+        .slice(0, TS_LIMITS.REFERENCE_MAX_CHARS);
+
+      const tried: TriedStep[] = turns.flatMap((t) =>
+        t.role === "step" && t.done
+          ? [
+              {
+                index: t.step.index,
+                title: t.step.title,
+                outcomeKind: t.done.kind,
+                outcomeLabel: t.done.label,
+              },
+            ]
+          : [],
+      );
+      const nextIndex = state.stepCount + 1;
+      const result = await generateText({
+        model: TS_MODEL,
+        messages: userContent(
+          buildStepPrompt({
+            problem: sanitizeForPrompt(problem),
+            reference,
+            tried: picked ? [...tried, picked] : tried,
+            lastOutcome: picked,
+            nextIndex,
+            stepsLeft: Math.max(TS_LIMITS.MAX_STEPS - nextIndex, 0),
+            languageName: (await userContext).languageName,
+          }),
+          photo,
+        ),
+        maxOutputTokens: 3000,
+        timeout: MODEL_TIMEOUT_MS,
+        providerOptions: { openai: { reasoningEffort: "low" } },
       });
-      next.status = "stepping";
-      next.stepCount = nextIndex;
-    } else {
-      out.push({
-        role: "end",
-        result: parsed.kind,
-        summary: parsed.summary,
-        sources: parsed.kind === "resolved" ? sources : [],
-        tokens: 0,
-      });
-      next.status = parsed.kind;
+      usages.push(result.totalUsage);
+      let parsed = parseStepOutput(result.text);
+      if (!parsed) throw new Error("step output did not parse");
+      // ⚠️ The user's fact wins.
+      if (picked?.outcomeKind === "fixed" && parsed.kind !== "resolved") {
+        parsed = {
+          kind: "resolved",
+          summary: parsed.kind === "exhausted" ? parsed.summary : "The problem is fixed.",
+        };
+      }
+      // The cap: after the last permitted step, nothing but an ending.
+      if (parsed.kind === "step" && nextIndex > TS_LIMITS.MAX_STEPS) {
+        parsed = {
+          kind: "exhausted",
+          summary: "That is every procedure the documents give for this problem.",
+        };
+      }
+      const sources = stepSources(search.passages, await catalogueInfo);
+      // Sebtember's troubleshooting gaps: a thin search, or the procedures ran out (`exhausted`,
+      // the cap included) on a search that did find the documents. A `fixed` is never a gap.
+      const strength = search.retrievalStrength;
+      report = {
+        function: "troubleshooting",
+        requestId,
+        passages: search.passages,
+        retrievalStrength: strength,
+        gap:
+          strength === "thin"
+            ? { reason: "thin", query: problem }
+            : parsed.kind === "exhausted" && (strength === "normal" || strength === "rich")
+              ? { reason: "no_procedure", query: problem }
+              : undefined,
+      };
+      if (parsed.kind === "step") {
+        out.push({
+          role: "step",
+          step: { index: nextIndex, ...parsed.step },
+          sources,
+          done: null,
+          tokens: 0,
+        });
+        next.status = "stepping";
+        next.stepCount = nextIndex;
+      } else {
+        out.push({
+          role: "end",
+          result: parsed.kind,
+          summary: parsed.summary,
+          sources: parsed.kind === "resolved" ? sources : [],
+          tokens: 0,
+        });
+        next.status = parsed.kind;
+      }
     }
+  } catch (err) {
+    const done = usages.reduce((sum, u) => sum + billedAnswerTokens(u), 0);
+    if (done > 0) {
+      const usage = usages.map((u) => usageOf(TS_MODEL, u));
+      logCharge("troubleshooting", uid, `${requestId}-turn`, done, usage);
+      await chargeOrKeep("troubleshooting", uid, wallet.source, {
+        id: `${requestId}-turn`,
+        tokens: done,
+        operation: "troubleshooting_turn_failed",
+        usage,
+      });
+    }
+    throw err;
   }
 
   // ---- 3. one charge for the turn's model work, to the source the balance returned.

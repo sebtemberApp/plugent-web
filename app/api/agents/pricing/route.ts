@@ -14,16 +14,17 @@
  * with every paid step; never re-resolved. Sebtember charges its engine work to it; each charge it
  * reports is kept as a turn with its model usage.
  */
-import { randomUUID } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/session";
 import { readPrefs } from "@/lib/prefs";
 import { consumeRateLimit } from "@/lib/rate-limit";
 import {
+  claimPricingMatch,
   createPricingRun,
   isRunId,
   readPricingRun,
   recordPricingCharge,
+  releasePricingMatch,
   touchRun,
 } from "@/lib/runs";
 import {
@@ -136,13 +137,25 @@ export async function POST(req: NextRequest) {
               .filter((n: unknown) => Number.isInteger(n) && (n as number) >= 0)
               .slice(0, MAX_KEEP)
           : undefined;
-        // A new match (Next, Refresh) gets a new request id; a continuation reuses its run's.
-        const requestId =
-          typeof body.requestId === "string" && /^[A-Za-z0-9-]{1,80}$/.test(body.requestId)
-            ? body.requestId
-            : `${runId}-${randomUUID().slice(0, 8)}`;
-        const cont = Number.isInteger(body.continue) && body.continue > 0 ? body.continue : 0;
-        const result = await matchPricing(uid, run.source, run.pricingId, requestId, keep, cont);
+        // ⚠️ The request id and the continuation number are the SERVER's (`claimPricingMatch`): a
+        // new match (Next, Refresh) mints one, a continuation takes the run's stored id and next
+        // number. The browser's `requestId` / `continue` value is never trusted.
+        const claim = await claimPricingMatch(
+          uid,
+          runId,
+          Number(body.continue) > 0 ? "continue" : "new",
+        );
+        if (claim === "busy") return bad("busy", 409);
+        if (claim === "no_match") return bad("no_match", 409);
+        const { requestId, n: cont } = claim;
+        let result: PricingStepResult;
+        try {
+          result = await matchPricing(uid, run.source, run.pricingId, requestId, keep, cont);
+        } catch (err) {
+          await releasePricingMatch(uid, runId, claim, true).catch(() => {});
+          throw err;
+        }
+        await releasePricingMatch(uid, runId, claim, false).catch(() => {});
         await keepCharge(uid, runId, "match", `${requestId}-match-${cont}`, result);
         await touchRun(uid, runId).catch(() => {});
         return NextResponse.json({ ...result, requestId });
