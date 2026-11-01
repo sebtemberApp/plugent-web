@@ -62,5 +62,6 @@ built like PeakPick. It NEVER reads sebtember's Firestore or vectors directly. T
 `https://dev.sebtember.app`. Variables: `.env.example`.
 
 ## Commands
+`pnpm chat:review` (the two-weekly Chat review, `docs/chat-loop.md`; never in CI, `-- --dry-run` is free) ·
 `pnpm dev` · `pnpm build` · `pnpm lint` · `pnpm typecheck` · `pnpm eval:chat-behavior` (free shape check;
 `-- --run` for the paid suite, needs `AI_GATEWAY_API_KEY`)
