@@ -17,6 +17,12 @@ that uses it.
 Auth for the product API: a Google ID token for `PRODUCT_API_AUDIENCE`, from a service account listed in
 sebtember's `PRODUCT_API_CALLERS` as `plugent=<email>`. Unlisted → 401.
 
+**What sebtember is for Chat:** the search above, and nothing after it. Since 2026-11-01 Chat's prompt, clarify tool use,
+answer model and evals are Plugent's (`lib/agents/chat-prompt.ts`, `lib/agents/ask-prompt.ts`, `lib/agents/eval/`).
+Sebtember.app's own chat is retired; its `system-instruction-gpt.ts` stays only as the frozen Knowledge Widget / Slack
+prompt and is no longer copied here. A retrieval problem (wrong or missing passages, a bad rewrite, a wrong strength) is
+still a sebtember change, made first.
+
 ## Planned sebtember-side additions
 - ~~Milestone 2: catalogue consent~~ done in sebtember Step 1174 (PR #1094); replaced by connected-by-default + Pause in Step 1178.
 - ~~First agent: a passage search through the grant~~ done in sebtember Step 1175 (PR #1095).

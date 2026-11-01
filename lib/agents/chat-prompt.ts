@@ -1,16 +1,18 @@
 /**
- * Chat's answer prompt — SEBTEMBER'S, COPIED VERBATIM (the CLAUDE.md rule for agent prompts):
- * `SYSTEM_INSTRUCTION_GPT` from sebtember's `lib/chat/system-instruction-gpt.ts` (gpt-3), the
- * prompt sebtember.app's own chat answers with on the same model (gpt-5.4-mini), and
- * `buildLanguageBlock` from its `lib/chat/language-block.ts`. Change them in sebtember first,
- * then copy.
+ * Chat's answer prompt — PLUGENT'S OWN since 2026-11-01 (the CLAUDE.md rule for Chat). It began
+ * as a verbatim copy of sebtember's `lib/chat/system-instruction-gpt.ts` (`gpt-3`) and
+ * `lib/chat/language-block.ts`; sebtember.app's chat is retired and its copy is frozen for the
+ * Knowledge Widget and Slack, so it is no longer the source. Edit it HERE, bump
+ * `CHAT_PROMPT_VERSION`, and run `pnpm eval:chat-behavior -- --run` before and after.
  *
- * What Plugent adds is BELOW the copy and only about plumbing: which passages the answer used
- * (`PLUGENT_SOURCES_RULE`), so the source cards show those. Plugent sends no tools, no rolling
- * memory and no catalogue guidance; the prompt already says what to do when one is missing.
+ * `PLUGENT_SOURCES_RULE` (bottom) says which passages the answer used, so the source cards show
+ * those. Chat also sends sebtember's clarify tool and the publishers' catalogue guidance
+ * (`ask-prompt.ts`); it sends no rolling memory, and the prompt already says what to do when a
+ * block is missing.
  */
 
-export const SEBTEMBER_PROMPT_VERSION = "gpt-3";
+/** `plugent-1` is sebtember's `gpt-3`, unchanged. */
+export const CHAT_PROMPT_VERSION = "plugent-1";
 
 export const SYSTEM_INSTRUCTION_GPT = `You are Sebtember — a knowledgeable senior colleague. People from any field bring you their own material (documents, images, data) and ask questions about it. You read what's relevant to the question and give a clear, grounded answer.
 

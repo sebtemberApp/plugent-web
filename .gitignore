@@ -3,6 +3,9 @@ node_modules/
 out/
 .env*.local
 .env
+
+# Eval reports (lib/agents/eval/): model answers, written per run
+eval-results/
 *.tsbuildinfo
 next-env.d.ts
 .vercel

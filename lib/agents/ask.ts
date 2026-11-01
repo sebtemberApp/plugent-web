@@ -11,8 +11,9 @@
  *   4. the answer model, from the passages only;
  *   5. `charge` the model work as line `{runId}-answer` to the SAME source.
  *
- * ⚠️ THE PROMPT IS SEBTEMBER CHAT'S (`chat-prompt.ts`, copied verbatim), fed the way sebtember's
- * chat feeds it: the passages as `<retrieved_data>` under sebtember's own chunk headers, with the
+ * ⚠️ THE PROMPT IS PLUGENT'S OWN (`chat-prompt.ts`; it began as sebtember chat's). `ask-prompt.ts`
+ * builds the call, the same pure functions the behaviour eval runs (`pnpm eval:chat-behavior`),
+ * and feeds it the way sebtember's chat did: the passages as `<retrieved_data>` under sebtember's own chunk headers, with the
  * publishers' `<catalogue_guidance>` before them, the search's `<retrieval_strength>`,
  * `<source_quality>` and `<complete_files>`, the user's notes as `<user_persona>`, the
  * dated-version reminder, and `<response_language>` from the user's Sebtember language. The
@@ -26,27 +27,25 @@
  */
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { type ModelMessage, streamText } from "ai";
+import { streamText } from "ai";
 import {
-  buildCompleteFilesBlock,
-  buildLanguageBlock,
-  buildSourceQualityBlock,
-  CONTINUITY_REMINDER,
-  PLUGENT_SOURCES_RULE,
-  renderChunkHeader,
-  retrievedDocsHaveVersionedPair,
-  SYSTEM_INSTRUCTION_GPT,
-  VERSION_REMINDER,
-} from "@/lib/agents/chat-prompt";
-import { CLARIFY_TOOL, sanitizeClarify } from "@/lib/agents/clarify";
+  ASK_MODEL,
+  type AskMode,
+  type AskSource,
+  askCallOptions,
+  askMessages,
+  type CatalogueInfo,
+  citedSources,
+  type HistoryMessage,
+  readAnswer,
+} from "@/lib/agents/ask-prompt";
+import { SYSTEM_INSTRUCTION_GPT } from "@/lib/agents/chat-prompt";
+import { sanitizeClarify } from "@/lib/agents/clarify";
 import { readUserContext } from "@/lib/agents/profile";
-import { sanitizeForPrompt, stripInlineFilenames } from "@/lib/agents/sanitize";
 import {
   type ChargeUsage,
   getBalance,
   getKnowledgeCatalogues,
-  type KnowledgePassage,
-  type KnowledgeSearch,
   SebtemberApiError,
   searchKnowledge,
 } from "@/lib/sebtember/products";
@@ -61,25 +60,19 @@ import {
   usageOf,
 } from "@/lib/usage";
 
-/** A Vercel AI Gateway model id; sebtember's RFQ and gateway chat answer run on it. */
-export const ASK_MODEL = process.env.PLUGENT_ASK_MODEL?.trim() || "openai/gpt-5.4-mini";
+export {
+  ASK_MODEL,
+  type AskMode,
+  type AskSource,
+  type CatalogueInfo,
+  type HistoryMessage,
+  ownerLabel,
+} from "@/lib/agents/ask-prompt";
+
 export const MAX_QUESTION_CHARS = 2000;
 const MAX_PASSAGES = 12;
 /** Sebtember chat's history window: the last 10 messages (5 questions and their answers). */
 export const HISTORY_MESSAGES = 10;
-/** Sebtember's `MAX_OWNED_SUBJECTS`. */
-const MAX_OWNED_SUBJECTS = 20;
-const MAX_ANSWER_TOKENS = 2000;
-const ANSWER_TIMEOUT_MS = 45_000;
-
-/**
- * The composer's mode, as in Sebtember chat. "deep" asks the model to reason longer
- * (OpenAI `reasoningEffort: "high"`, which the gateway forwards); its reasoning tokens
- * count as output, so it gets a larger output cap and a longer timeout, and costs more.
- */
-export type AskMode = "standard" | "deep";
-const DEEP_MAX_ANSWER_TOKENS = 8000;
-const DEEP_ANSWER_TIMEOUT_MS = 75_000;
 
 /** Divisors on the gateway's usage (billed = raw / factor; < 1 marks up). */
 const DISCOUNTS = { input: 6, reasoning: 0.5, output: 0.5 };
@@ -103,158 +96,6 @@ export function billedAnswerTokens(usage: AskUsage): number {
     Math.ceil(reasoning / DISCOUNTS.reasoning) +
     Math.ceil(text / DISCOUNTS.output)
   );
-}
-
-/** A `<`-tag inside stored text must not close the block it sits in. */
-function fence(text: string): string {
-  return text.replace(
-    /<\/?(retrieved_data|user_persona|response_language|plugent_sources|catalogue_guidance|source_quality|complete_files)\b/gi,
-    "‹$1",
-  );
-}
-
-/** The model's view of one turn, assembled in sebtember's order (`buildDynamicSections`):
- *  persona, guidance + retrieved data, its strength, source quality, complete files, the
- *  version and continuity reminders, then the language last. */
-export function buildAskPrompt(args: {
-  question: string;
-  search: Pick<
-    KnowledgeSearch,
-    "passages" | "retrievalStrength" | "catalogue_guidance" | "source_quality" | "whole_files"
-  >;
-  personaMd: string;
-  /** The catalogues the user curates (their own), for the persona's second zone. */
-  ownedSubjects?: string[];
-  languageName: string | null;
-  /** A follow-up in a chat that already has an answer: sebtember's continuity reminder. */
-  continuing?: boolean;
-}): string {
-  const { passages } = args.search;
-  const notes = fence(sanitizeForPrompt(args.personaMd.trim(), 8000));
-  const owned = [
-    ...new Set((args.ownedSubjects ?? []).map((n) => sanitizeForPrompt(n).trim()).filter(Boolean)),
-  ].slice(0, MAX_OWNED_SUBJECTS);
-  // Sebtember's `buildPersonaBlock`: what the user wrote, then what their account shows.
-  const zones = [
-    notes
-      ? `## What the user told us about themselves — authoritative, follow this exactly\n${notes}`
-      : "",
-    owned.length > 0
-      ? `## What their account shows — calibration only; the section above overrides this on any conflict\n- Curates their own knowledge base on: ${owned.join(", ")}`
-      : "",
-  ].filter(Boolean);
-  const chunks = passages.map(
-    (p, i) =>
-      `Passage: ${i + 1}\n${renderChunkHeader({
-        filename: p.file_name,
-        catalogueName: p.catalogue_name,
-        collectionName: p.collection_name,
-        kindLabel: p.kind,
-        isNote: p.is_note === true,
-        page: p.page,
-        section: p.section,
-      })}\n\n${fence(p.text)}`,
-  );
-  const retrieved =
-    passages.length > 0 ? `<retrieved_data>\n${chunks.join("\n\n===\n\n")}\n</retrieved_data>` : "";
-  // Chat prepends the publishers' guidance to <retrieved_data> (sebtember's `retrieveContext`);
-  // sebtember sends it already sanitised.
-  const guidance = args.search.catalogue_guidance?.trim() ?? "";
-  return [
-    zones.length > 0 ? `<user_persona>\n${zones.join("\n\n")}\n</user_persona>` : "",
-    guidance && retrieved ? `${guidance}\n\n${retrieved}` : retrieved,
-    `<retrieval_strength>${args.search.retrievalStrength}</retrieval_strength>`,
-    buildSourceQualityBlock(
-      (args.search.source_quality ?? []).map((n) => ({
-        filename: sanitizeForPrompt(n.filename),
-        issues: n.issues.map((i) => sanitizeForPrompt(i)),
-      })),
-    ),
-    buildCompleteFilesBlock((args.search.whole_files ?? []).map((f) => sanitizeForPrompt(f))),
-    passages.length > 0 &&
-    retrievedDocsHaveVersionedPair(passages.map((p) => ({ filename: p.file_name })))
-      ? VERSION_REMINDER
-      : "",
-    args.continuing ? CONTINUITY_REMINDER : "",
-    PLUGENT_SOURCES_RULE,
-    buildLanguageBlock(args.languageName),
-    args.question,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-}
-
-/** The reply without its machine `SOURCES:` line, and the passage numbers that line named
- *  (null when the model left it out). */
-export function splitSources(text: string): { answer: string; used: number[] | null } {
-  const lines = text.trimEnd().split("\n");
-  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 3); i--) {
-    const m = /^\s*\**SOURCES:?\**:?\s*(.*)$/i.exec(lines[i] ?? "");
-    if (!m) continue;
-    const used = [...(m[1] ?? "").matchAll(/\d+/g)].map((d) => Number(d[0]));
-    lines.splice(i, 1);
-    return { answer: lines.join("\n").trim(), used };
-  }
-  return { answer: text.trim(), used: null };
-}
-
-/** What sebtember says about one granted catalogue: Library or not (Step 1176), and whose
- *  it is (Step 1177; `undefined` from an older sebtember). */
-export type CatalogueInfo = { library: boolean; owner?: { name: string | null } | null };
-
-/** Whose content a source is, for the answer card's "Source:" row: `null` = the user's own.
- *  Without sebtember's owner (an older sebtember) a Library source is "Library". */
-export function ownerLabel(info: CatalogueInfo | undefined): string | null {
-  if (!info) return null;
-  if (info.owner === undefined) return info.library ? "Library" : null;
-  if (info.owner === null) return null;
-  return info.owner.name ?? "Another Sebtember user";
-}
-
-/** The source cards: the passages the answer used (`used`, from its SOURCES line; an older
- *  answer's [n] marks otherwise; every passage when it named none), ONE card per file with its
- *  pages together, numbered in order. `catalogues` is what sebtember says about each granted
- *  catalogue. */
-export function citedSources(
-  answer: string,
-  passages: KnowledgePassage[],
-  catalogues: ReadonlyMap<string, CatalogueInfo> = new Map(),
-  used: number[] | null = null,
-): AskSource[] {
-  const marked = [...answer.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1]));
-  const picked = new Set(used ?? (marked.length > 0 ? marked : passages.map((_, i) => i + 1)));
-  const byFile = new Map<string, AskSource>();
-  passages.forEach((p, i) => {
-    if (!picked.has(i + 1)) return;
-    const key = `${p.catalogue_id}/${p.file_name}`;
-    const seen = byFile.get(key);
-    if (seen) {
-      if (p.page && !seen.page?.split(", ").includes(p.page)) {
-        seen.page = seen.page ? `${seen.page}, ${p.page}` : p.page;
-      }
-      return;
-    }
-    byFile.set(key, {
-      n: byFile.size + 1,
-      fileName: p.file_name,
-      catalogueName: p.catalogue_name,
-      page: p.page,
-      library: catalogues.get(p.catalogue_id)?.library ?? false,
-      owner: ownerLabel(catalogues.get(p.catalogue_id)),
-    });
-  });
-  return [...byFile.values()];
-}
-
-export interface AskSource {
-  n: number;
-  fileName: string;
-  catalogueName: string | null;
-  page: string | null;
-  /** From another user's published catalogue (Library), not the user's own. */
-  library: boolean;
-  /** Whose content it is: `null` = the user's own, else the owner's name. */
-  owner: string | null;
 }
 
 export type AskResult =
@@ -284,12 +125,6 @@ export type AskResult =
       charges?: TurnCharge[];
       unpaid?: TurnCharge[];
     };
-
-/** One earlier message of the same chat, oldest first (the route reads them from the run). */
-export interface HistoryMessage {
-  role: "user" | "assistant";
-  content: string;
-}
 
 export class AskRefused extends Error {
   constructor(readonly code: "low_balance" | "not_connected") {
@@ -360,22 +195,14 @@ export async function runAsk(
   }
 
   const { languageName, personaMd } = await userContext;
-  // Sebtember's gateway turn: the earlier messages as they were, then the new question with
-  // the per-turn blocks spliced in front of it.
-  const messages: ModelMessage[] = [
-    ...history.map((m) => ({ role: m.role, content: sanitizeForPrompt(m.content) })),
-    {
-      role: "user",
-      content: buildAskPrompt({
-        question: sanitizeForPrompt(question),
-        search,
-        personaMd,
-        ownedSubjects: await ownedSubjects,
-        languageName,
-        continuing: history.some((m) => m.role === "assistant"),
-      }),
-    },
-  ];
+  const messages = askMessages({
+    question,
+    history,
+    search,
+    personaMd,
+    ownedSubjects: await ownedSubjects,
+    languageName,
+  });
   // Stopped while the search ran: the model is never called, so only the search is paid for.
   if (stream.stop?.aborted) {
     return {
@@ -396,19 +223,9 @@ export async function runAsk(
   if (stream.stop?.aborted) onStop();
   stream.stop?.addEventListener("abort", onStop, { once: true });
   const result = streamText({
-    model: ASK_MODEL,
-    instructions: SYSTEM_INSTRUCTION_GPT,
+    ...askCallOptions(mode),
     messages,
-    // Sebtember's clarify tool: calling it ends the turn with a question and chips.
-    tools: { ask_clarification: CLARIFY_TOOL },
     abortSignal: model.signal,
-    ...(mode === "deep"
-      ? {
-          maxOutputTokens: DEEP_MAX_ANSWER_TOKENS,
-          timeout: DEEP_ANSWER_TIMEOUT_MS,
-          providerOptions: { openai: { reasoningEffort: "high" } },
-        }
-      : { maxOutputTokens: MAX_ANSWER_TOKENS, timeout: ANSWER_TIMEOUT_MS }),
   });
   let text = "";
   let totalUsage: AskUsage | null = null;
@@ -503,11 +320,10 @@ export async function runAsk(
     });
   }
 
-  const split = splitSources(text);
-  // Sebtember's backstop: a file name cited in the prose goes; the cards carry it.
-  const answer = stripInlineFilenames(split.answer);
+  const read = readAnswer(text);
+  const answer = read.answer;
   // A stopped answer never reached its SOURCES line: it cites nothing rather than every passage.
-  const used = stopped ? (split.used ?? []) : split.used;
+  const used = stopped ? (read.used ?? []) : read.used;
   return {
     kind: "answer",
     answer,
