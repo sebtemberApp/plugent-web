@@ -135,12 +135,21 @@ export interface AskTrace {
   stopped: boolean;
 }
 
+/**
+ * A trace is written in the turn's batch, so it must stay far under Firestore's 1 MiB document limit
+ * or the paid answer is not saved: each passage is kept to `TRACE_PASSAGE_CHARS`, and the whole set
+ * to `TRACE_TOTAL_CHARS` (the judge reads 1500 of each anyway).
+ */
+const TRACE_PASSAGE_CHARS = 20_000;
+const TRACE_TOTAL_CHARS = 250_000; // ≤ 750 KB even at 3 bytes a character
+
 function traceOf(
   search: KnowledgeSearch,
   mode: AskMode,
   historyLength: number,
   outcome: { used: number[] | null; clarify: boolean; stopped: boolean },
 ): AskTrace {
+  let budget = TRACE_TOTAL_CHARS;
   return {
     promptVersion: CHAT_PROMPT_VERSION,
     model: ASK_MODEL,
@@ -156,7 +165,11 @@ function traceOf(
       collection_name: p.collection_name ?? null,
       kind: p.kind ?? null,
       is_note: p.is_note === true,
-      text: p.text,
+      text: (() => {
+        const text = p.text.slice(0, Math.max(0, Math.min(TRACE_PASSAGE_CHARS, budget)));
+        budget -= text.length;
+        return text;
+      })(),
     })),
     wholeFiles: search.whole_files ?? [],
     sourceQuality: search.source_quality ?? [],

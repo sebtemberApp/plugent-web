@@ -14,20 +14,25 @@
 # -----------------------------
 # The eval calls the Vercel AI Gateway (Chat's answer model + the judge), which needs
 # AI_GATEWAY_API_KEY. Add it as a repo secret (Settings → Secrets and variables → Actions → New
-# repository secret) to turn the gate ON. Until then the job SKIPS with a notice (still green).
-# Secrets are never given to PRs from forks.
+# repository secret) to turn the gate ON. Until then a PR that changes Chat's call FAILS with a
+# notice — a gate that cannot run must not read as passed. Secrets are never given to PRs from
+# forks, so a fork PR that changes Chat's call fails too: a maintainer re-runs it from a branch.
 #
 # SAFE TO MARK REQUIRED
 # ---------------------
 # The job runs on EVERY PR but only spends money when a relevant file changed (it diffs against
 # the base branch), so it always completes. Change detection fails SAFE: if it can't tell what
-# changed, it runs the gate.
+# changed, it runs the gate. "Relevant" includes what decides how the gate itself runs:
+# package.json (the script), pnpm-lock.yaml (the `ai` SDK) and this workflow.
 
 name: Chat behavioral gate
 
 on:
   pull_request:
   workflow_dispatch: {}
+
+permissions:
+  contents: read
 
 jobs:
   chat-behavior:
@@ -47,7 +52,7 @@ jobs:
             # workflow_dispatch, or the base commit isn't available — run to be safe.
             echo "relevant=true" >> "$GITHUB_OUTPUT"
           elif git diff --name-only "$base"...HEAD \
-              | grep -qE '^lib/agents/(chat-prompt\.ts|ask-prompt\.ts|clarify\.ts|sanitize\.ts|eval/chat-behavior-(eval\.ts|cases\.json))$'; then
+              | grep -qE '^(lib/agents/(chat-prompt\.ts|ask-prompt\.ts|clarify\.ts|sanitize\.ts|eval/chat-behavior-(eval\.ts|cases\.json))|package\.json|pnpm-lock\.yaml|\.github/workflows/chat-behavior-gate\.yml)$'; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
           else
             echo "relevant=false" >> "$GITHUB_OUTPUT"
@@ -62,9 +67,11 @@ jobs:
         if: steps.changed.outputs.relevant != 'true'
         run: echo "::notice::No change to Chat's prompt, its call or the gate — Chat behavioral gate not run."
 
-      - name: Skip — gate dormant (no secret)
+      - name: Fail — Chat's call changed but the gate cannot run (no secret)
         if: steps.changed.outputs.relevant == 'true' && steps.key.outputs.active != 'true'
-        run: echo "::notice::Chat's answer call changed, but the AI_GATEWAY_API_KEY secret is not set — the gate is DORMANT. Add the secret to activate it."
+        run: |
+          echo "::error::Chat's answer call changed, but AI_GATEWAY_API_KEY is not available (not set, or a fork PR) — the gate cannot run, so it does not pass. Add the secret, or re-run from a branch of this repo."
+          exit 1
 
       - name: Setup pnpm
         if: steps.changed.outputs.relevant == 'true' && steps.key.outputs.active == 'true'
