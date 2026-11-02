@@ -8,6 +8,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { type NextRequest, NextResponse } from "next/server";
 import { askStopRef, isStopId } from "@/lib/ask-stop";
 import { getSessionUser } from "@/lib/auth/session";
+import { consumeRateLimit, STOPS_PER_MINUTE } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -17,6 +18,9 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const stopId = typeof body?.stopId === "string" ? body.stopId : "";
   if (!isStopId(stopId)) return NextResponse.json({ error: "invalid_request" }, { status: 400 });
+  if (!(await consumeRateLimit(user.uid, "stop", STOPS_PER_MINUTE))) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+  }
   await askStopRef(user.uid, stopId).set({ at: FieldValue.serverTimestamp() });
   return NextResponse.json({ ok: true });
 }

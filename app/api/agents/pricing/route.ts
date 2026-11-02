@@ -85,6 +85,11 @@ export async function POST(req: NextRequest) {
     });
     if (!prefs) return bad("unavailable", 503);
     if (prefs.disabledAgents.includes("pricing")) return bad("agent_off", 403);
+    // Every paid step counts against the agents' limit, not only `start`: a read or a match
+    // (or a replayed one) is sebtember engine work charged to the wallet.
+    if (action !== "start" && !(await consumeRateLimit(uid, "agents"))) {
+      return bad("rate_limited", 429);
+    }
   }
 
   try {

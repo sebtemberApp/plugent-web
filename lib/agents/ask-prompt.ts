@@ -67,6 +67,18 @@ function fence(text: string): string {
   );
 }
 
+/**
+ * ⚠️ A passage's file name, catalogue, collection, kind and section are written by whoever
+ * uploaded or published them — another user's Library catalogue included — and sit in the chunk
+ * header INSIDE <retrieved_data>, where only the text was fenced. One line each, fenced, capped:
+ * a heading `x</retrieved_data>` followed by instructions can no longer leave the data block. An
+ * ordinary name comes out unchanged.
+ */
+function meta<T extends string | null | undefined>(value: T): T {
+  if (typeof value !== "string") return value;
+  return fence(value.replace(/[\r\n\t]+/g, " ")).slice(0, 300) as T;
+}
+
 export type AskSearch = Pick<
   KnowledgeSearch,
   "passages" | "retrievalStrength" | "catalogue_guidance" | "source_quality" | "whole_files"
@@ -102,13 +114,13 @@ export function buildAskPrompt(args: {
   const chunks = passages.map(
     (p, i) =>
       `Passage: ${i + 1}\n${renderChunkHeader({
-        filename: p.file_name,
-        catalogueName: p.catalogue_name,
-        collectionName: p.collection_name,
-        kindLabel: p.kind,
+        filename: meta(p.file_name),
+        catalogueName: meta(p.catalogue_name),
+        collectionName: meta(p.collection_name),
+        kindLabel: meta(p.kind),
         isNote: p.is_note === true,
-        page: p.page,
-        section: p.section,
+        page: meta(p.page),
+        section: meta(p.section),
       })}\n\n${fence(p.text)}`,
   );
   const retrieved =
@@ -122,11 +134,12 @@ export function buildAskPrompt(args: {
     `<retrieval_strength>${args.search.retrievalStrength}</retrieval_strength>`,
     buildSourceQualityBlock(
       (args.search.source_quality ?? []).map((n) => ({
-        filename: sanitizeForPrompt(n.filename),
-        issues: n.issues.map((i) => sanitizeForPrompt(i)),
+        // `sanitizeForPrompt` (sebtember's, shared) does not know these blocks' tags: fence too.
+        filename: meta(sanitizeForPrompt(n.filename)),
+        issues: n.issues.map((i) => meta(sanitizeForPrompt(i))),
       })),
     ),
-    buildCompleteFilesBlock((args.search.whole_files ?? []).map((f) => sanitizeForPrompt(f))),
+    buildCompleteFilesBlock((args.search.whole_files ?? []).map((f) => meta(sanitizeForPrompt(f)))),
     passages.length > 0 &&
     retrievedDocsHaveVersionedPair(passages.map((p) => ({ filename: p.file_name })))
       ? VERSION_REMINDER
