@@ -12,6 +12,8 @@
  *      turned-off notice. No wallet chip, no token estimate (no estimates anywhere in Plugent),
  *      no creator replies (Plugent's feedback goes to Plugent).
  *   4. `docId` is PLUGENT'S run id; the route maps it to the sebtember pricing.
+ *   5. THE REVIEW'S SIGNAL: once a match is shown, the ticks the user changed from the default and
+ *      a sheet download are sent as `choice` (`lib/review/pricing-trace.ts`, `docs/pricing-loop.md`).
  *
  * Sebtember's own notes below are kept as they were written.
  *
@@ -72,8 +74,10 @@ import { useDiscountTables } from "@/components/pricing/use-discount-tables";
 import { useBalance } from "@/components/shell/BalanceContext";
 import { RunMenu } from "@/components/shell/RunMenu";
 import { AgentIcon } from "@/components/ui/AgentIcon";
+import { defaultSelection } from "@/lib/agents/ipl/derive";
 import { type DiscountClient, discountGroupsOf } from "@/lib/agents/ipl/discount";
 import type { IplExportDiscount } from "@/lib/agents/ipl/export";
+import { IPL_MAX_MATCHES } from "@/lib/agents/ipl/types";
 import {
   formatUploadLimit,
   MOI_ACCEPT,
@@ -88,11 +92,14 @@ import { droppedFromRequested, visibleConfirmRows } from "@/lib/pricing/confirm"
 import { downloadSourceXlsx } from "@/lib/pricing/source-export";
 import { moiFileProblem, PricingUploadError, uploadPricingFile } from "@/lib/pricing/upload-client";
 import { type PricingInitial, type PricingRunData, pricingInitial } from "@/lib/pricing/view";
+import { choiceOf } from "@/lib/review/pricing-trace";
 import { cn } from "@/lib/utils";
 
 const PRICING_NEW_TITLE = "New pricing";
 /** How often the page asks for the run while a step is running. */
 const POLL_MS = 2000;
+/** How long the ticks rest before the change is sent to the review's trace. */
+const CHOICE_SETTLE_MS = 3000;
 /** Sebtember's refusals, in words. Anything else shows as its code. */
 const ERRORS: Record<string, string> = {
   low_balance: "Your Sebtember balance is too low. Top up in Sebtember to continue.",
@@ -160,6 +167,42 @@ export function PricingView({
     toggleOption,
     setAll: setAllOptions,
   } = useOptionSelection(state.status === "complete" && state.result ? state.result : null);
+
+  /**
+   * The Pricing review's signal (change 5): which lines' ticks the user changed from the default,
+   * sent once they rest, and a sheet download. Evidence for the review only — never a price, never
+   * read back; a failed send is dropped.
+   */
+  const postChoice = (body: { changed?: Record<string, number[]>; exported?: "sheet" }) => {
+    if (!docId) return;
+    void fetch("/api/agents/pricing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "choice", runId: docId, ...body }),
+      keepalive: true,
+    }).catch(() => {});
+  };
+  const choiceDefaults = useMemo(
+    () =>
+      state.status === "complete" && state.result
+        ? defaultSelection(state.result, IPL_MAX_MATCHES)
+        : null,
+    [state.status, state.result],
+  );
+  const changedKey = choiceDefaults ? JSON.stringify(choiceOf(choiceDefaults, selected)) : null;
+  const sentChoice = useRef("{}");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `postChoice` is a fresh closure each render; the key decides.
+  useEffect(() => {
+    if (changedKey === null || changedKey === sentChoice.current) return;
+    const id = setTimeout(() => {
+      sentChoice.current = changedKey;
+      postChoice({ changed: JSON.parse(changedKey) });
+    }, CHOICE_SETTLE_MS);
+    return () => clearTimeout(id);
+  }, [changedKey]);
+  const onSheetClick = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest("button")) postChoice({ exported: "sheet" });
+  };
   /**
    * Step 1033 — lines the user DESELECTED on the confirm screen.
    *
@@ -1031,13 +1074,15 @@ export function PricingView({
     if (!state.result || state.result.items.length === 0 || state.status !== "complete")
       return null;
     return (
-      <IplDownloads
-        result={state.result}
-        selected={selected}
-        fileBase={state.sourceFilename}
-        discount={onPrice ? exportDiscount : undefined}
-        className="mt-0! shrink-0"
-      />
+      <span className="contents" onClickCapture={onSheetClick}>
+        <IplDownloads
+          result={state.result}
+          selected={selected}
+          fileBase={state.sourceFilename}
+          discount={onPrice ? exportDiscount : undefined}
+          className="mt-0! shrink-0"
+        />
+      </span>
     );
   }
 
@@ -1201,24 +1246,26 @@ export function PricingView({
                 {/* The export follows the toggles, so what you download is what
                     you are looking at. */}
                 {state.result && state.result.items.length > 0 ? (
-                  <IplDownloads
-                    result={state.result}
-                    selected={selected}
-                    fileBase={state.sourceFilename}
-                    /* Step 1134 — the two-tab feedback control rides the export
+                  <span className="contents" onClickCapture={onSheetClick}>
+                    <IplDownloads
+                      result={state.result}
+                      selected={selected}
+                      fileBase={state.sourceFilename}
+                      /* Step 1134 — the two-tab feedback control rides the export
                        row (content owner = the price-list providers; Sebtember
                        team = the operator). */
-                    /* Step 1110 — on the Price step this is the discounted
+                      /* Step 1110 — on the Price step this is the discounted
                        sheet (`-pricelist.xlsx`); on Match, the plain one. */
-                    discount={view === 3 ? exportDiscount : undefined}
-                    /* ⚠️ `mt-0` UNDOES THE DEFAULT rather than replacing the box:
+                      discount={view === 3 ? exportDiscount : undefined}
+                      /* ⚠️ `mt-0` UNDOES THE DEFAULT rather than replacing the box:
                        the margin exists so the RETIRED card's downloads clear the
                        card above them, and inside a vertically centred row it
                        would push this button off centre. `cn()` resolves the two
                        margin utilities, which is the one thing tailwind-merge is
                        reliable at. */
-                    className="mt-0! shrink-0"
-                  />
+                      className="mt-0! shrink-0"
+                    />
+                  </span>
                 ) : null}
               </div>
             ) : null}

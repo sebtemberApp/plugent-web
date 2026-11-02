@@ -13,7 +13,8 @@
  *   - their unpaid charge lines (the wallet they would be paid from is gone);
  *   - their rate-limit counters (`rate_limits/{uid}_…`);
  *   - their conversations' results in the Chat review (`chat_reviews` where `uids` holds them):
- *     the review quotes passages and answers, so it is redacted, not left to its 30-day TTL.
+ *     the review quotes passages and answers, so it is redacted, not left to its 30-day TTL;
+ *     the same for the Pricing review (`pricing_reviews`), which quotes their uploaded lists.
  *
  * ⚠️ A delete that fails THROWS, so sebtember's cascade sees a failure and retries; it is never
  * counted as done.
@@ -39,6 +40,7 @@ export interface DeletedCounts {
   unpaid_charges: number;
   rate_limits: number;
   chat_reviews: number;
+  pricing_reviews: number;
 }
 
 async function deleteMatching(query: FirebaseFirestore.Query): Promise<number> {
@@ -52,10 +54,13 @@ async function deleteMatching(query: FirebaseFirestore.Query): Promise<number> {
   return snap.size;
 }
 
-/** Removes the user's results from every Chat review that judged one of their conversations. */
-async function redactReviews(uid: string): Promise<number> {
+/** Removes the user's results from every review (Chat's, Pricing's) that judged one of their runs. */
+async function redactReviews(
+  uid: string,
+  collection: "chat_reviews" | "pricing_reviews",
+): Promise<number> {
   const db = plugentDb();
-  const snap = await db.collection("chat_reviews").where("uids", "array-contains", uid).get();
+  const snap = await db.collection(collection).where("uids", "array-contains", uid).get();
   await Promise.all(
     snap.docs.map((doc) =>
       db.runTransaction(async (tx) => {
@@ -79,20 +84,27 @@ export async function deleteUserData(uid: string): Promise<DeletedCounts> {
   const shared_answers = await deleteMatching(
     db.collection("shared_answers").where("owner_uid", "==", uid),
   );
-  const [agent_suggestions, answer_feedback, unpaid_charges, rate_limits, chat_reviews] =
-    await Promise.all([
-      deleteMatching(db.collection("agent_suggestions").where("uid", "==", uid)),
-      deleteMatching(db.collection("answer_feedback").where("uid", "==", uid)),
-      deleteMatching(db.collection("unpaid_charges").where("uid", "==", uid)),
-      // `{uid}_{scope}_{minute}`: every id that starts with "{uid}_".
-      deleteMatching(
-        db
-          .collection("rate_limits")
-          .where(FieldPath.documentId(), ">=", `${uid}_`)
-          .where(FieldPath.documentId(), "<", `${uid}_\uf8ff`),
-      ),
-      redactReviews(uid),
-    ]);
+  const [
+    agent_suggestions,
+    answer_feedback,
+    unpaid_charges,
+    rate_limits,
+    chat_reviews,
+    pricing_reviews,
+  ] = await Promise.all([
+    deleteMatching(db.collection("agent_suggestions").where("uid", "==", uid)),
+    deleteMatching(db.collection("answer_feedback").where("uid", "==", uid)),
+    deleteMatching(db.collection("unpaid_charges").where("uid", "==", uid)),
+    // `{uid}_{scope}_{minute}`: every id that starts with "{uid}_".
+    deleteMatching(
+      db
+        .collection("rate_limits")
+        .where(FieldPath.documentId(), ">=", `${uid}_`)
+        .where(FieldPath.documentId(), "<", `${uid}_\uf8ff`),
+    ),
+    redactReviews(uid, "chat_reviews"),
+    redactReviews(uid, "pricing_reviews"),
+  ]);
   await db.recursiveDelete(db.collection("users").doc(uid));
   return {
     shared_answers,
@@ -101,5 +113,6 @@ export async function deleteUserData(uid: string): Promise<DeletedCounts> {
     unpaid_charges,
     rate_limits,
     chat_reviews,
+    pricing_reviews,
   };
 }

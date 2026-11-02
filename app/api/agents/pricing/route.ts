@@ -9,22 +9,31 @@
  *   discount  {runId, typed}              → the client name resolved against the table (null clears)
  *   cancel    {runId, force?}             → the run
  *   document  {runId, templateId, selected, client} → the priced list as a PDF / Word file
+ *   choice    {runId, changed?, exported?}   → {ok}: what the user did with the match (the review's signal)
  *
  * ⚠️ THE WALLET IS THE ONE THE BALANCE CALL RETURNED AT START, stored on the run and passed back
  * with every paid step; never re-resolved. Sebtember charges its engine work to it; each charge it
  * reports is kept as a turn with its model usage.
+ *
+ * ⚠️ EACH STAGE'S END IS KEPT AS A TRACE (`lib/review/pricing-trace.ts`, 30 days, server-only) for the
+ * two-weekly Pricing review (`docs/pricing-loop.md`): whichever answer first shows the stage ended —
+ * the step's own, or a poll — writes it, once. A failed trace never fails the answer.
  */
 import { type NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/session";
 import { readPrefs } from "@/lib/prefs";
 import { consumeRateLimit } from "@/lib/rate-limit";
+import { extractTrace, matchTrace, parseChoice, parseExport } from "@/lib/review/pricing-trace";
 import {
   claimPricingMatch,
   createPricingRun,
   isRunId,
+  type PricingRunState,
   readPricingRun,
   recordPricingCharge,
+  recordPricingChoice,
   releasePricingMatch,
+  savePricingTrace,
   touchRun,
 } from "@/lib/runs";
 import {
@@ -66,6 +75,33 @@ async function keepCharge(
   await recordPricingCharge(uid, runId, step, lineId, { tokens: c.tokens, usage }).catch((err) =>
     console.error(`[pricing] charge record failed run=${runId} line=${lineId}`, err),
   );
+}
+
+/**
+ * The stage's trace, when this answer is the first to show the stage ended. A read ends at
+ * `awaiting_confirmation` (or `error` before any match), keyed by when it started, so "Start over"
+ * keeps a second one; a match ends at `complete` (or `error`), keyed by its request id.
+ */
+async function keepTrace(
+  uid: string,
+  runId: string,
+  run: PricingRunState,
+  answer: Record<string, unknown>,
+  requestId = run.matchRequestId,
+) {
+  const status = answer.status;
+  const matched = status === "complete" || (status === "error" && requestId);
+  const read = status === "awaiting_confirmation" || (status === "error" && !requestId);
+  try {
+    if (matched && requestId && run.tracedMatch !== requestId) {
+      await savePricingTrace(uid, runId, requestId, matchTrace(answer));
+    } else if (read) {
+      const key = `${runId}-${Number(answer.gather_started_at_ms) || 0}`;
+      if (run.tracedExtract !== key) await savePricingTrace(uid, runId, key, extractTrace(answer));
+    }
+  } catch (err) {
+    console.error(`[pricing] trace failed run=${runId}`, err);
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -126,13 +162,17 @@ export async function POST(req: NextRequest) {
     if (!run) return bad("run_not_found", 404);
 
     switch (action) {
-      case "get":
-        return NextResponse.json(await getPricing(uid, run.pricingId, body.rescan === true));
+      case "get": {
+        const answer = await getPricing(uid, run.pricingId, body.rescan === true);
+        await keepTrace(uid, runId, run, answer as unknown as Record<string, unknown>);
+        return NextResponse.json(answer);
+      }
 
       case "extract": {
         // One read per run: the run id IS the request id, so a retried read is charged once.
         const result = await extractPricing(uid, run.source, run.pricingId, runId);
         await keepCharge(uid, runId, "extract", `${runId}-extract`, result);
+        await keepTrace(uid, runId, run, result as unknown as Record<string, unknown>);
         return NextResponse.json(result);
       }
 
@@ -162,6 +202,7 @@ export async function POST(req: NextRequest) {
         }
         await releasePricingMatch(uid, runId, claim, false).catch(() => {});
         await keepCharge(uid, runId, "match", `${requestId}-match-${cont}`, result);
+        await keepTrace(uid, runId, run, result as unknown as Record<string, unknown>, requestId);
         await touchRun(uid, runId).catch(() => {});
         return NextResponse.json({ ...result, requestId });
       }
@@ -186,12 +227,25 @@ export async function POST(req: NextRequest) {
         }
         const client = typeof body.client === "string" ? body.client.slice(0, 200) : null;
         const file = await pricingDocument(uid, run.pricingId, templateId, selected, client);
+        await recordPricingChoice(uid, run, runId, {
+          exported: templateId === "default-docx" ? "docx" : "pdf",
+        }).catch((err) => console.error(`[pricing] choice failed run=${runId}`, err));
         return new NextResponse(file.bytes, {
           headers: {
             "content-type": file.contentType,
             ...(file.disposition ? { "content-disposition": file.disposition } : {}),
           },
         });
+      }
+
+      case "choice": {
+        // Evidence only: what the user ticked, never a price. Free, like `get`.
+        const exported = parseExport(body.exported);
+        await recordPricingChoice(uid, run, runId, {
+          ...(body.changed !== undefined ? { changed: parseChoice(body.changed) } : {}),
+          exported,
+        }).catch((err) => console.error(`[pricing] choice failed run=${runId}`, err));
+        return NextResponse.json({ ok: true });
       }
 
       default:

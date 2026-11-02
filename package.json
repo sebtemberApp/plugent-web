@@ -9,7 +9,8 @@
     "lint": "biome check .",
     "typecheck": "tsc --noEmit",
     "eval:chat-behavior": "tsx lib/agents/eval/chat-behavior-eval.ts",
-    "chat:review": "tsx --conditions=react-server scripts/chat-review.ts"
+    "chat:review": "tsx --conditions=react-server scripts/chat-review.ts",
+    "pricing:review": "tsx --conditions=react-server scripts/pricing-review.ts"
   },
   "dependencies": {
     "ai": "^7.0.154",

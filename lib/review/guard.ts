@@ -1,6 +1,7 @@
 /**
  * The proposal's mechanical guard — the last check before the Chat review's proposal leaves Plugent's
  * Firestore for a PUBLIC repository (a PR body, `chat-prompt.ts`, `chat-behavior-cases.json`).
+ * `leakRefusal` is the evidence half alone, which the Pricing review's proposal passes too.
  *
  * The proposer is TOLD to write in general terms with invented products and numbers; this module does
  * not trust that. It refuses a proposal that:
@@ -38,7 +39,8 @@ function shingles(s: string): Set<string> {
 function numbers(s: string): Set<string> {
   const out = new Set<string>();
   for (const m of s.matchAll(/\d[\d.,   ]*\d|\d/gu)) {
-    const digits = m[0].replace(/\D/g, "").replace(/0+$/, "");
+    // Only a DECIMAL tail of zeros goes (`,00`, `.0`): `1600` and `1,000` stay whole.
+    const digits = m[0].replace(/[.,]0{1,2}$/, "").replace(/\D/g, "");
     if (digits.length >= 3) out.add(digits);
   }
   return out;
@@ -96,22 +98,35 @@ export function proposalRefusal(
       return "edit.find occurs more than once in the prompt";
   }
 
-  const out = publishedText(p);
+  return leakRefusal(publishedText(p), evidence, prompt, "conversations");
+}
+
+/**
+ * null when `out` carries nothing of the evidence; else which kind of thing it carries. Text in
+ * `allowed` (what the published file already holds, e.g. the prompt an edit quotes) does not count.
+ * Shared by the Chat and Pricing reviews.
+ */
+export function leakRefusal(
+  out: string,
+  evidence: { text: string; names: string[] },
+  allowed: string,
+  what: string,
+): string | null {
   const outLower = out.toLowerCase();
   if (evidence.names.some((n) => outLower.includes(n)))
-    return "it names a file or catalogue from the reviewed conversations";
+    return `it names a file, catalogue or code from the reviewed ${what}`;
 
-  const promptShingles = shingles(prompt);
+  const allowedShingles = shingles(allowed);
   const evidenceShingles = shingles(evidence.text);
   for (const s of shingles(out))
-    if (evidenceShingles.has(s) && !promptShingles.has(s))
-      return `it repeats ${SHINGLE_WORDS}+ words of the reviewed conversations`;
+    if (evidenceShingles.has(s) && !allowedShingles.has(s))
+      return `it repeats ${SHINGLE_WORDS}+ words of the reviewed ${what}`;
 
-  const promptNumbers = numbers(prompt);
+  const allowedNumbers = numbers(allowed);
   const evidenceNumbers = numbers(evidence.text);
   for (const n of numbers(out))
-    if (evidenceNumbers.has(n) && !promptNumbers.has(n))
-      return "it carries a number from the reviewed conversations";
+    if (evidenceNumbers.has(n) && !allowedNumbers.has(n))
+      return `it carries a number from the reviewed ${what}`;
 
   return null;
 }
