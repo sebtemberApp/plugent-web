@@ -308,9 +308,15 @@ export function ChatAgent({
 
   // A new turn, or a turn that changed state (pending → streaming → answer), scrolls to the end.
   const shape = turns.map((t) => `${t.id}:${t.state.kind}`).join(",");
+  // A NEW turn always scrolls; a turn that only changed state (an answer finishing) scrolls only a
+  // reader already at the end — one who scrolled up to read was yanked down when it finished.
+  const turnCount = useRef(turns.length);
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on every new turn or answer
   useEffect(() => {
-    scrollToEnd("smooth");
+    const added = turns.length > turnCount.current;
+    turnCount.current = turns.length;
+    const gap = document.documentElement.scrollHeight - window.innerHeight - window.scrollY;
+    if (added || gap < 240) scrollToEnd("smooth");
   }, [shape]);
   // While an answer streams in, the page follows it only if the reader is at the end already,
   // so scrolling up to read is never pulled back down.
@@ -580,7 +586,13 @@ export function ChatAgent({
               <span className="flex-1 min-[521px]:hidden" />
               <MicButton
                 disabled={busy}
-                onText={(text) => setQuestion((q) => (q.trim() ? `${q.trimEnd()} ${text}` : text))}
+                // Held to the box's limit like typing: a long dictation over 2000 characters was
+                // refused on Send ("Type something first") after it was transcribed and charged.
+                onText={(text) =>
+                  setQuestion((q) =>
+                    (q.trim() ? `${q.trimEnd()} ${text}` : text).slice(0, MAX_QUESTION_CHARS),
+                  )
+                }
               />
               {busy && stopId ? (
                 <button

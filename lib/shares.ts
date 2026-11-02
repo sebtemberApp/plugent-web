@@ -155,14 +155,17 @@ export async function stopSharing(uid: string, token: string): Promise<boolean> 
 export async function stopRunShares(uid: string, runId: string): Promise<void> {
   const db = plugentDb();
   const snap = await pointers(uid).where("run_id", "==", runId).get();
-  if (snap.empty) return;
-  const batch = db.batch();
-  for (const d of snap.docs) {
-    const token = d.get("token");
-    if (typeof token === "string") batch.delete(db.collection(SHARES).doc(token));
-    batch.delete(d.ref);
+  // Two deletes per share, in batches of 200 shares: one batch over Firestore's 500 writes threw,
+  // and a run with that many shares could never be deleted.
+  for (let i = 0; i < snap.docs.length; i += 200) {
+    const batch = db.batch();
+    for (const d of snap.docs.slice(i, i + 200)) {
+      const token = d.get("token");
+      if (typeof token === "string") batch.delete(db.collection(SHARES).doc(token));
+      batch.delete(d.ref);
+    }
+    await batch.commit();
   }
-  await batch.commit();
 }
 
 /** The public page's read: the snapshot, or null when it is gone. */

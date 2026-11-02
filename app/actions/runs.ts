@@ -29,7 +29,12 @@ export async function renameRunAction(
   if (clean.length === 0 || clean.length > MAX_TITLE_CHARS) {
     return { ok: false, error: "invalid_title" };
   }
-  const done = await renameRun(user.uid, runId, clean);
+  // A Firestore error (or a rename racing a delete) answers as an error the menu shows, never a
+  // throw: a thrown action replaced the whole app with the error page.
+  const done = await renameRun(user.uid, runId, clean).catch((err) => {
+    console.error(`[runs] rename failed run=${runId}`, err);
+    return false;
+  });
   if (!done) return { ok: false, error: "run_not_found" };
   // The sidebar lives in the shared layout: re-render it with the new name.
   revalidatePath("/", "layout");
@@ -69,11 +74,17 @@ export async function deleteRunAction(
       );
     if (!removed) return { ok: false, error: "delete_failed" };
   }
-  // Still answering: refused before anything is removed (its shares included).
-  if (await isRunBusy(user.uid, runId)) return { ok: false, error: "busy" };
-  // Its shared answers go first: a public page must not outlive the run it came from.
-  await stopRunShares(user.uid, runId);
-  if ((await deleteRun(user.uid, runId)) === "busy") return { ok: false, error: "busy" };
+  try {
+    // Still answering: refused before anything is removed (its shares included).
+    if (await isRunBusy(user.uid, runId)) return { ok: false, error: "busy" };
+    // Its shared answers go first: a public page must not outlive the run it came from.
+    await stopRunShares(user.uid, runId);
+    if ((await deleteRun(user.uid, runId)) === "busy") return { ok: false, error: "busy" };
+  } catch (err) {
+    // Answered as an error the menu shows; a thrown action replaced the app with the error page.
+    console.error(`[runs] delete failed run=${runId}`, err);
+    return { ok: false, error: "delete_failed" };
+  }
   revalidatePath("/", "layout");
   if (leaveTo && /^\/agents\/[a-z]+$/.test(leaveTo)) redirect(leaveTo);
   return { ok: true };

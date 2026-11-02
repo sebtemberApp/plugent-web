@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 
 export type Balance =
   | { state: "loading" }
@@ -27,11 +27,18 @@ export function BalanceProvider({
   sebtemberUrl?: string | null;
 }) {
   const [balance, setBalance] = useState<Balance>({ state: "loading" });
+  const balanceRef = useRef(balance);
+  balanceRef.current = balance;
 
+  // ⚠️ A read that started before a charge must not overwrite the balance the charge reported:
+  // `spent` bumps this, and a read whose number is behind it is dropped.
+  const version = useRef(0);
   const refresh = useCallback(() => {
+    const started = version.current;
     fetch("/api/balance")
       .then(async (r) => {
         const data = await r.json().catch(() => ({ error: `http_${r.status}` }));
+        if (version.current !== started) return;
         setBalance(
           r.ok
             ? { state: "ready", ...data }
@@ -43,9 +50,18 @@ export function BalanceProvider({
 
   useEffect(() => refresh(), [refresh]);
 
-  const spent = useCallback((balanceAfter: number) => {
-    setBalance((b) => (b.state === "ready" ? { ...b, balance: balanceAfter } : b));
-  }, []);
+  const spent = useCallback(
+    (balanceAfter: number) => {
+      version.current += 1;
+      if (balanceRef.current.state === "loading") {
+        // The read in flight predates this charge (and is now dropped): read again.
+        refresh();
+        return;
+      }
+      setBalance((b) => (b.state === "ready" ? { ...b, balance: balanceAfter } : b));
+    },
+    [refresh],
+  );
 
   const topUpUrl = sebtemberUrl ? new URL("/usage", sebtemberUrl).toString() : null;
   return <Ctx.Provider value={{ balance, spent, refresh, topUpUrl }}>{children}</Ctx.Provider>;

@@ -727,9 +727,25 @@ export async function recordPricingCharge(
 ): Promise<void> {
   const ref = runs(uid).doc(runId);
   const now = FieldValue.serverTimestamp();
-  const batch = plugentDb().batch();
-  // The line id is the turn id, so a retried step that sebtember reports again is one turn.
-  batch.set(ref.collection("turns").doc(lineId), {
+  const turnRef = ref.collection("turns").doc(lineId);
+  // The line id is the turn id, so a retried step that sebtember reports again is one turn — and
+  // the run's counters move only when the turn is new (a batch counted a repeat twice).
+  await plugentDb().runTransaction(async (batch) => {
+    if ((await batch.get(turnRef)).exists) return;
+    recordPricingTurn(batch, ref, turnRef, step, lineId, charge, now);
+  });
+}
+
+function recordPricingTurn(
+  batch: FirebaseFirestore.Transaction,
+  ref: FirebaseFirestore.DocumentReference,
+  turnRef: FirebaseFirestore.DocumentReference,
+  step: "extract" | "match",
+  lineId: string,
+  charge: { tokens: number; usage?: ChargeUsage[] },
+  now: FieldValue,
+): void {
+  batch.set(turnRef, {
     kind: "charge",
     step,
     by: "sebtember",
@@ -751,7 +767,6 @@ export async function recordPricingCharge(
     turnCount: FieldValue.increment(1),
     updatedAt: now,
   });
-  await batch.commit();
 }
 
 export async function touchRun(uid: string, runId: string, title?: string): Promise<void> {
@@ -780,6 +795,11 @@ export interface UsageRun {
 }
 
 const USAGE_RUNS = 200;
+/**
+ * A bounded period reads further: newer runs (updated after the period) come first in the
+ * query, so at 200 a heavy user's past month was cut and its tiles read low.
+ */
+const USAGE_RUNS_PERIOD = 1000;
 
 /** What one turn cost: its lines, or a bare total from before turns kept them. */
 type Spent = { at: number; charges?: unknown; tokens?: unknown };
@@ -825,10 +845,11 @@ export async function readUsage(
   since: number | null,
   until: number | null,
 ): Promise<{ runs: UsageRun[]; truncated: boolean }> {
+  const cap = since !== null ? USAGE_RUNS_PERIOD : USAGE_RUNS;
   const window = <T extends FirebaseFirestore.Query>(q: T) =>
     (since !== null ? q.where("updatedAt", ">=", new Date(since)) : q)
       .orderBy("updatedAt", "desc")
-      .limit(USAGE_RUNS);
+      .limit(cap);
   const [live, gone] = await Promise.all([window(runs(uid)).get(), window(deletedRuns(uid)).get()]);
   const inWindow = (at: number) =>
     (since === null || at >= since) && (until === null || at < until);
@@ -841,7 +862,9 @@ export async function readUsage(
         turns.docs.map((t) => ({
           at: millis(t.get("createdAt")),
           charges: t.get("charges"),
-          tokens: t.get("tokens"),
+          // A turn whose line is still unpaid (`charged: false`, no `charges`) took nothing from
+          // the wallet yet: when it is paid, `retryUnpaid` adds its charge to the turn.
+          tokens: t.get("charged") === false ? 0 : t.get("tokens"),
         })),
         inWindow,
       );
@@ -857,6 +880,6 @@ export async function readUsage(
   ]);
   return {
     runs: read.filter((r): r is UsageRun => r !== null).sort((a, b) => b.lastAt - a.lastAt),
-    truncated: live.size === USAGE_RUNS || gone.size === USAGE_RUNS,
+    truncated: live.size === cap || gone.size === cap,
   };
 }

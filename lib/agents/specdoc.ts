@@ -29,6 +29,7 @@ import {
   ownerLabel,
 } from "@/lib/agents/ask";
 import { readUserContext } from "@/lib/agents/profile";
+import { sanitizeForPrompt } from "@/lib/agents/sanitize";
 import {
   BOM_SYSTEM_INSTRUCTION,
   RFQ_SYSTEM_INSTRUCTION,
@@ -116,8 +117,10 @@ export function isDeclineOutput(output: string): boolean {
 const MAX_REFINEMENTS = 10;
 
 /** sebtember `scopeSpecRun`: retrieve the device's full datasheet, not the narrow subject. */
-function searchQuery(subject: string, refinement: string | null): string {
-  const named = refinement ? `${subject} ${refinement}` : subject;
+function searchQuery(subject: string, refinements: string[]): string {
+  // Every refinement, not only the newest: "add noise levels" after "Daikin Altherma 3" must still
+  // search the Daikin, or the passages lose the device the run narrowed to.
+  const named = [subject, ...refinements].join(" ");
   return `${named.slice(0, 600)} full technical specifications datasheet: dimensions, weight, power supply, ratings, materials, connections, performance`;
 }
 
@@ -169,10 +172,12 @@ export function noReferenceMessage(subject: string): string {
 export async function runSpecDoc(
   uid: string,
   agent: SpecDocAgent,
-  subject: string,
-  refinements: string[],
+  rawSubject: string,
+  rawRefinements: string[],
 ): Promise<AskResult> {
-  const kept = refinements.slice(-MAX_REFINEMENTS);
+  // User text passes sebtember's sanitiser like every agent's (the CLAUDE.md rule).
+  const subject = sanitizeForPrompt(rawSubject);
+  const kept = rawRefinements.slice(-MAX_REFINEMENTS).map((r) => sanitizeForPrompt(r, 500));
   const refinement = kept.at(-1) ?? null;
   const earlier = kept.slice(0, -1);
   const cfg = CONFIG[agent];
@@ -197,7 +202,7 @@ export async function runSpecDoc(
     search = await searchKnowledge(
       uid,
       wallet.source,
-      searchQuery(subject, refinement),
+      searchQuery(subject, kept),
       runId,
       MAX_PASSAGES,
     );
@@ -211,7 +216,8 @@ export async function runSpecDoc(
   if (search.passages.length === 0) {
     return {
       kind: "answer",
-      answer: noReferenceMessage(refinement ?? subject),
+      // The product the run is about, never "make it shorter".
+      answer: noReferenceMessage(subject),
       sources: [],
       tokens: searchTokens,
       balanceAfter: search.balanceAfter,

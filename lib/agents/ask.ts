@@ -314,6 +314,9 @@ export async function runAsk(
   });
   let text = "";
   let totalUsage: AskUsage | null = null;
+  let finishReason: string | null = null;
+  // The stream failed after text reached the user (the SDK's own timeout, a provider error).
+  let cut = false;
   const toolCalls: { toolName: string; input: unknown }[] = [];
   try {
     for await (const part of result.fullStream) {
@@ -324,18 +327,41 @@ export async function runAsk(
         toolCalls.push({ toolName: part.toolName, input: part.input });
       } else if (part.type === "finish") {
         totalUsage = part.totalUsage;
+        finishReason = part.finishReason;
       } else if (part.type === "error") {
         throw part.error;
       }
     }
   } catch (err) {
-    // A Stop ends the stream however the SDK reports it; anything else is a failed answer.
-    if (!model.signal.aborted || model.signal.reason !== "stopped") throw err;
+    // A Stop ends the stream however the SDK reports it. A failure after the user watched text
+    // stream in keeps that text, as a stopped answer is kept (it was replaced by an error, and
+    // nothing was saved or charged); a failure before any text is a failed answer.
+    const byStop = model.signal.aborted && model.signal.reason === "stopped";
+    if (!byStop && text.trim().length === 0) throw err;
+    if (!byStop) {
+      cut = true;
+      console.warn(`[ask] stream cut after ${text.length} chars uid=${uid} run=${runId}`, err);
+    }
   } finally {
     stream.stop?.removeEventListener("abort", onStop);
   }
-  const stopped = model.signal.aborted && model.signal.reason === "stopped";
+  const stopped = (model.signal.aborted && model.signal.reason === "stopped") || cut;
   if (!totalUsage && !stopped) throw new Error("ask: the stream ended without usage");
+  // ⚠️ A FINISHED ANSWER WITH NO TEXT and no usable question back (deep reasoning that spent every
+  // output token, a clarify call too thin to show) is a failed answer, never a blank card charged
+  // and citing every passage. The model's cost is logged, not charged.
+  const clarifyCall = toolCalls.find((c) => c.toolName === "ask_clarification");
+  if (
+    !stopped &&
+    text.trim().length === 0 &&
+    !(clarifyCall && sanitizeClarify(clarifyCall.input))
+  ) {
+    console.error(
+      `[ask] empty answer, not charged uid=${uid} run=${runId} finish=${finishReason}`,
+      totalUsage,
+    );
+    throw new Error("ask: the model wrote no answer");
+  }
 
   // ⚠️ A STOPPED ANSWER IS CHARGED BY AN ESTIMATE: the provider reports no usage for a call cut
   // short, so its prompt and its written text are counted at CHARS_PER_TOKEN (its reasoning is
@@ -374,8 +400,7 @@ export async function runAsk(
     else charged = false;
   }
 
-  const call = toolCalls.find((c) => c.toolName === "ask_clarification");
-  const clarify = call ? sanitizeClarify(call.input) : null;
+  const clarify = clarifyCall ? sanitizeClarify(clarifyCall.input) : null;
   if (clarify) {
     return {
       kind: "answer",
@@ -408,8 +433,9 @@ export async function runAsk(
 
   const read = readAnswer(text);
   const answer = read.answer;
-  // A stopped answer never reached its SOURCES line: it cites nothing rather than every passage.
-  const used = stopped ? (read.used ?? []) : read.used;
+  // A stopped or cut-off answer (Stop, a failure, the output limit) never reached its SOURCES
+  // line: it cites nothing rather than every passage.
+  const used = stopped || finishReason === "length" ? (read.used ?? []) : read.used;
   return {
     kind: "answer",
     answer,

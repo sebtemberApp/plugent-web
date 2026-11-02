@@ -241,7 +241,7 @@ async function respond(
         model: TS_MODEL,
         messages: userContent(
           buildClarifyPrompt({
-            problem: sanitizeForPrompt(problem),
+            problem: sanitizeForPrompt(headAndTail(problem, 4000)),
             answered,
             hasPhoto: photo !== null,
             clarifyTurnsLeft: TS_LIMITS.MAX_CLARIFY_TURNS - state.clarifyCount,
@@ -279,7 +279,13 @@ async function respond(
             ),
         )
         .catch(() => new Map<string, CatalogueInfo>());
-      const query = picked ? `${problem}\n${picked.title}: ${picked.outcomeLabel}` : problem;
+      // The newest answers and the step's outcome are at the END: keep them when the problem text
+      // outgrows the search's 2000 characters (it was cut from the front, so a model name given
+      // after a long pasted log never reached the search).
+      const query = headAndTail(
+        picked ? `${problem}\n${picked.title}: ${picked.outcomeLabel}` : problem,
+        2000,
+      );
       let search: Awaited<ReturnType<typeof searchKnowledge>>;
       try {
         search = await searchKnowledge(
@@ -323,7 +329,7 @@ async function respond(
         model: TS_MODEL,
         messages: userContent(
           buildStepPrompt({
-            problem: sanitizeForPrompt(problem),
+            problem: sanitizeForPrompt(headAndTail(problem, 4000)),
             reference,
             tried: picked ? [...tried, picked] : tried,
             lastOutcome: picked,
@@ -455,6 +461,13 @@ async function respond(
     balanceAfter,
     charged,
   };
+}
+
+/** Text over `max` keeps its start and its end (the first report and the latest answers). */
+function headAndTail(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const half = Math.floor((max - 3) / 2);
+  return `${text.slice(0, half)}\n…\n${text.slice(-half)}`;
 }
 
 /** The clarifying questions asked so far, each with the user's answer (the next turn). */

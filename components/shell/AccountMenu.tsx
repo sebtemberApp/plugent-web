@@ -98,15 +98,20 @@ export function AccountMenu({
 
   useEffect(() => setTheme(readTheme()), []);
 
-  // The profile is read once, the first time the menu opens (a failed read retries on the next).
+  // The profile is read once, the first time the menu opens; a failed read retries on the NEXT
+  // open. ⚠️ Keyed on `open` only: with `profile` in the deps, "error" re-ran the effect at once
+  // and a failing read looped for as long as the menu stayed open.
+  const profileRef = useRef(profile);
+  profileRef.current = profile;
   useEffect(() => {
-    if (!open || (profile !== null && profile !== "error")) return;
+    const now = profileRef.current;
+    if (!open || (now !== null && now !== "error")) return;
     setProfile("loading");
     readProfileAction().then(
       (res) => setProfile(res.ok ? res.profile : "error"),
       () => setProfile("error"),
     );
-  }, [open, profile]);
+  }, [open]);
 
   // Closing the menu returns it to its main list.
   useEffect(() => {

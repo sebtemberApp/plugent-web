@@ -59,14 +59,15 @@ export async function POST(req: NextRequest) {
   const runId = body?.runId == null ? null : String(body.runId);
   // Checked before any money is spent: a stale or foreign run id is refused for free, and the
   // run is claimed, so a second question in the same chat waits for the first.
+  // The rate limit FIRST: it can throw (a contended transaction), and a throw after the claim
+  // left the run "busy" for 5.5 minutes.
+  if (!(await consumeRateLimit(user.uid, "agents"))) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+  }
   if (runId !== null) {
     const claim = isRunId(runId) ? await claimRun(user.uid, runId, "chat") : null;
     if (claim === null) return NextResponse.json({ error: "run_not_found" }, { status: 404 });
     if (claim === "busy") return NextResponse.json({ error: "busy" }, { status: 409 });
-  }
-  if (!(await consumeRateLimit(user.uid, "agents"))) {
-    if (runId) await releaseRun(user.uid, runId);
-    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
   const uid = user.uid;
   const encoder = new TextEncoder();

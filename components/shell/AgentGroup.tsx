@@ -3,7 +3,7 @@
 import { ChevronDown, Plus } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { olderRunsAction } from "@/app/actions/run-history";
 import { AgentIcon } from "@/components/ui/AgentIcon";
 import type { AgentEntry } from "@/lib/agents/registry";
@@ -40,6 +40,17 @@ export function AgentGroup({
   const [cursor, setCursor] = useState<number | null | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
+  // ⚠️ When the layout's newest-runs window moves (new runs push old ones out of it), the pages
+  // read so far no longer join it: the runs that slid out sat in neither list and vanished. Start
+  // "Show more" over from the new window instead.
+  const windowOldest = runs?.[runs.length - 1]?.updatedAt;
+  const seenOldest = useRef(windowOldest);
+  useEffect(() => {
+    if (seenOldest.current === windowOldest) return;
+    seenOldest.current = windowOldest;
+    setOlder([]);
+    setCursor(undefined);
+  }, [windowOldest]);
   const heading =
     "flex h-10 w-full items-center gap-3 rounded-control px-2.5 text-left text-[15px]";
 
