@@ -3,6 +3,7 @@
 import { type AgentId, isAgentId } from "@/lib/agents/registry";
 import { getSessionUser } from "@/lib/auth/session";
 import { FEEDBACK_MAX_CHARS, saveFeedback } from "@/lib/feedback";
+import { consumeRateLimit, NOTES_PER_MINUTE } from "@/lib/rate-limit";
 import { isRunId, readTurnForFeedback } from "@/lib/runs";
 
 /**
@@ -22,9 +23,13 @@ export async function sendFeedbackAction(input: {
   if (!user) return { ok: false, error: "unauthorized" };
   const text = String(input?.text ?? "").trim();
   if (!text || text.length > FEEDBACK_MAX_CHARS) return { ok: false, error: "invalid_text" };
-  const runId = typeof input.runId === "string" && isRunId(input.runId) ? input.runId : null;
-  const turnId = typeof input.turnId === "string" ? input.turnId : null;
+  const runId = typeof input?.runId === "string" && isRunId(input.runId) ? input.runId : null;
+  const turnId = typeof input?.turnId === "string" ? input.turnId : null;
   try {
+    // Notes to the admin are capped like runs: unbounded, one user could fill the collection.
+    if (!(await consumeRateLimit(user.uid, "notes", NOTES_PER_MINUTE))) {
+      return { ok: false, error: "rate_limited" };
+    }
     const stored = runId ? await readTurnForFeedback(user.uid, runId, turnId) : null;
     if (runId && !stored) return { ok: false, error: "run_not_found" };
     const agent = stored?.agent ?? (isAgentId(input.agent) ? input.agent : null);

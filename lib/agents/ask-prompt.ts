@@ -67,6 +67,18 @@ function fence(text: string): string {
   );
 }
 
+/**
+ * ⚠️ A passage's file name, catalogue, collection, kind and section are written by whoever
+ * uploaded or published them — another user's Library catalogue included — and sit in the chunk
+ * header INSIDE <retrieved_data>, where only the text was fenced. One line each, fenced, capped:
+ * a heading `x</retrieved_data>` followed by instructions can no longer leave the data block. An
+ * ordinary name comes out unchanged.
+ */
+function meta<T extends string | null | undefined>(value: T): T {
+  if (typeof value !== "string") return value;
+  return fence(value.replace(/[\r\n\t]+/g, " ")).slice(0, 300) as T;
+}
+
 export type AskSearch = Pick<
   KnowledgeSearch,
   "passages" | "retrievalStrength" | "catalogue_guidance" | "source_quality" | "whole_files"
@@ -102,13 +114,13 @@ export function buildAskPrompt(args: {
   const chunks = passages.map(
     (p, i) =>
       `Passage: ${i + 1}\n${renderChunkHeader({
-        filename: p.file_name,
-        catalogueName: p.catalogue_name,
-        collectionName: p.collection_name,
-        kindLabel: p.kind,
+        filename: meta(p.file_name),
+        catalogueName: meta(p.catalogue_name),
+        collectionName: meta(p.collection_name),
+        kindLabel: meta(p.kind),
         isNote: p.is_note === true,
-        page: p.page,
-        section: p.section,
+        page: meta(p.page),
+        section: meta(p.section),
       })}\n\n${fence(p.text)}`,
   );
   const retrieved =
@@ -122,11 +134,12 @@ export function buildAskPrompt(args: {
     `<retrieval_strength>${args.search.retrievalStrength}</retrieval_strength>`,
     buildSourceQualityBlock(
       (args.search.source_quality ?? []).map((n) => ({
-        filename: sanitizeForPrompt(n.filename),
-        issues: n.issues.map((i) => sanitizeForPrompt(i)),
+        // `sanitizeForPrompt` (sebtember's, shared) does not know these blocks' tags: fence too.
+        filename: meta(sanitizeForPrompt(n.filename)),
+        issues: n.issues.map((i) => meta(sanitizeForPrompt(i))),
       })),
     ),
-    buildCompleteFilesBlock((args.search.whole_files ?? []).map((f) => sanitizeForPrompt(f))),
+    buildCompleteFilesBlock((args.search.whole_files ?? []).map((f) => meta(sanitizeForPrompt(f)))),
     passages.length > 0 &&
     retrievedDocsHaveVersionedPair(passages.map((p) => ({ filename: p.file_name })))
       ? VERSION_REMINDER
@@ -171,8 +184,10 @@ export function askMessages(args: {
 export function splitSources(text: string): { answer: string; used: number[] | null } {
   const lines = text.trimEnd().split("\n");
   for (let i = lines.length - 1; i >= Math.max(0, lines.length - 3); i--) {
-    const m = /^\s*\**SOURCES:?\**:?\s*(.*)$/i.exec(lines[i] ?? "");
-    if (!m) continue;
+    // ⚠️ "SOURCES:" then ONLY numbers (or "none"), as the rule asks: a prose line such as
+    // "Sources of heat loss include 3 factors" was taken for it, deleted, and cited passage 3.
+    const m = /^\s*\**\s*SOURCES\s*\**\s*:\s*\**\s*(.*?)\s*\**\s*$/i.exec(lines[i] ?? "");
+    if (!m || !/^(none|[\d\s,;[\]#]*)\.?$/i.test(m[1] ?? "")) continue;
     const used = [...(m[1] ?? "").matchAll(/\d+/g)].map((d) => Number(d[0]));
     lines.splice(i, 1);
     return { answer: lines.join("\n").trim(), used };
@@ -210,7 +225,11 @@ export function citedSources(
   catalogues: ReadonlyMap<string, CatalogueInfo> = new Map(),
   used: number[] | null = null,
 ): AskSource[] {
-  const marked = [...answer.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1]));
+  // Only marks that name a passage: "[2024]" in the prose is a year, not a citation (it emptied
+  // the cards of an answer with no SOURCES line).
+  const marked = [...answer.matchAll(/\[(\d+)\]/g)]
+    .map((m) => Number(m[1]))
+    .filter((n) => n >= 1 && n <= passages.length);
   const picked = new Set(used ?? (marked.length > 0 ? marked : passages.map((_, i) => i + 1)));
   const byFile = new Map<string, AskSource>();
   passages.forEach((p, i) => {
@@ -233,6 +252,25 @@ export function citedSources(
     });
   });
   return [...byFile.values()];
+}
+
+/**
+ * The answer's `[n]` marks renumbered from PASSAGE numbers to the CARDS' numbers (one card per
+ * file, numbered in order): a chip "5" pointed at no card when passages 2 and 5 became cards 1
+ * and 2. A mark for a passage with no card goes; any other bracketed number stays as text.
+ */
+export function renumberMarks(
+  answer: string,
+  passages: KnowledgePassage[],
+  sources: AskSource[],
+): string {
+  const cardOf = new Map(sources.map((s) => [`${s.catalogueName ?? ""}/${s.fileName}`, s.n]));
+  return answer.replace(/( ?)\[(\d+)\]/g, (whole, space: string, digits: string) => {
+    const p = passages[Number(digits) - 1];
+    if (!p) return whole;
+    const card = cardOf.get(`${p.catalogue_name ?? ""}/${p.file_name}`);
+    return card === undefined ? "" : `${space}[${card}]`;
+  });
 }
 
 export interface AskSource {

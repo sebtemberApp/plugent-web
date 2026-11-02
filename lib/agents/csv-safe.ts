@@ -44,7 +44,9 @@ export type CsvValue = string | number;
 export function csvCell(value: CsvValue): string {
   if (typeof value === "number") return String(value);
   const guarded = needsFormulaGuard(value) ? `'${value}` : value;
-  return /[",\n\r]/.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded;
+  // `;` and TAB quote too: Excel set to a `;` list separator (Lithuanian, German, French…) splits
+  // an unquoted `x;=1+1` into a second cell that starts with `=` — past the guard above.
+  return /[",;\t\n\r]/.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded;
 }
 
 /**

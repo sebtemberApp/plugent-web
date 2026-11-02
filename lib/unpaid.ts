@@ -14,8 +14,21 @@ import { plugentDb } from "@/lib/firebase/admin";
 import { type ChargeLine, type ChargeResult, charge } from "@/lib/sebtember/products";
 import type { TurnCharge } from "@/lib/usage";
 
-/** After this many failed retries the line is left for the operator (`gaveUp`), not retried. */
+/**
+ * A line is left for the operator (`gaveUp`) only after this many failed retries AND this much
+ * time: counted alone, 20 runs in a short sebtember outage (the user's next runs each retry their
+ * lines) gave a line up within minutes, and nothing retried it again.
+ */
 const MAX_RETRIES = 20;
+const GIVE_UP_AFTER_MS = 14 * 86_400_000;
+
+/** A failed line waits 2^retries minutes (a day at most) before its next retry. */
+const backoffMs = (retries: number) => Math.min(2 ** retries, 1440) * 60_000;
+
+const millisOf = (t: unknown) =>
+  t && typeof (t as { toMillis?: () => number }).toMillis === "function"
+    ? (t as { toMillis: () => number }).toMillis()
+    : 0;
 
 function unpaid() {
   return plugentDb().collection("unpaid_charges");
@@ -79,11 +92,20 @@ export async function retryUnpaid(
   // here, over a page large enough that given-up lines cannot crowd out live ones (audit N8).
   const snap = uid
     ? await unpaid().where("uid", "==", uid).limit(200).get()
-    : await unpaid().where("gaveUp", "==", false).limit(limit).get();
+    : // A wider page than `limit`, so lines still backing off do not crowd out the due ones.
+      await unpaid()
+        .where("gaveUp", "==", false)
+        .limit(Math.max(limit * 4, 500))
+        .get();
   let paid = 0;
   let failed = 0;
+  const now = Date.now();
   const live = snap.docs
     .filter((doc) => doc.get("gaveUp") === false && doc.get("line"))
+    .filter((doc) => {
+      const last = millisOf(doc.get("retriedAt"));
+      return !last || now - last >= backoffMs(Number(doc.get("retries") ?? 0));
+    })
     .slice(0, limit);
   for (const doc of live) {
     const d = doc.data();
@@ -95,18 +117,34 @@ export async function retryUnpaid(
           .doc(d.turnPath)
           .update({ charges: FieldValue.arrayUnion(d.charge), charged: true })
           .catch((err) => console.warn(`[unpaid] turn not updated line=${doc.id}`, err?.message));
+      } else if (typeof d.deletedRunPath === "string" && d.charge) {
+        // Its run was deleted while the line was unpaid: the deleted run's record keeps it.
+        await plugentDb()
+          .doc(d.deletedRunPath)
+          .set(
+            { spent: FieldValue.arrayUnion({ at: Date.now(), charges: [d.charge] }) },
+            { merge: true },
+          )
+          .catch((err) =>
+            console.warn(`[unpaid] deleted run not updated line=${doc.id}`, err?.message),
+          );
       }
       await doc.ref.delete();
       console.log(`[unpaid] paid line=${doc.id} uid=${d.uid} tokens=${d.line?.tokens}`);
       paid++;
     } catch (err) {
       const retries = Number(d.retries ?? 0) + 1;
-      await doc.ref.update({
-        retries,
-        gaveUp: retries >= MAX_RETRIES,
-        error: String((err as Error)?.message ?? err).slice(0, 300),
-        retriedAt: FieldValue.serverTimestamp(),
-      });
+      const age = now - (millisOf(d.createdAt) || now);
+      // A concurrent retry (the cron and a user's run) may have paid and deleted it meanwhile:
+      // that is not a failure of this loop, and the remaining lines still get their turn.
+      await doc.ref
+        .update({
+          retries,
+          gaveUp: retries >= MAX_RETRIES && age >= GIVE_UP_AFTER_MS,
+          error: String((err as Error)?.message ?? err).slice(0, 300),
+          retriedAt: FieldValue.serverTimestamp(),
+        })
+        .catch((e) => console.warn(`[unpaid] retry not recorded line=${doc.id}`, e?.message));
       failed++;
     }
   }

@@ -13,6 +13,10 @@ import { plugentDb } from "@/lib/firebase/admin";
 
 /** Sebtember's agent and chat cap: 20 runs a minute per user. */
 export const AGENT_RUNS_PER_MINUTE = 20;
+/** Feedback notes and agent suggestions together: each writes a document the admin reads. */
+export const NOTES_PER_MINUTE = 5;
+/** Stop presses: each writes a small document; a person never needs more. */
+export const STOPS_PER_MINUTE = 30;
 
 /** true when the call is allowed; the counter moves only then. */
 export async function consumeRateLimit(

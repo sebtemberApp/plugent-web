@@ -41,6 +41,17 @@ export function useAudioRecorder(onComplete: (blob: Blob, mimeType: string) => v
   const cancelled = useRef(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const elapsed = useRef(0);
+  // ⚠️ A start in flight (the permission prompt is open), and whether the page is still here:
+  // a double tap opened two streams (one never stopped), and leaving during the prompt let the
+  // recorder start on a page that was gone, then upload and charge the clip 5 minutes later.
+  const starting = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   // Read after mount: the server cannot see the browser, so the first render must say "no
   // microphone" on both sides (a different first render is a hydration error in React 19).
@@ -76,8 +87,14 @@ export function useAudioRecorder(onComplete: (blob: Blob, mimeType: string) => v
       setError("Voice input isn't supported in this browser.");
       return false;
     }
+    if (starting.current || recorder.current) return false;
+    starting.current = true;
     try {
       const media = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!mounted.current) {
+        for (const track of media.getTracks()) track.stop();
+        return false;
+      }
       stream.current = media;
       mime.current = pickMimeType();
       const rec = new MediaRecorder(media, {
@@ -114,6 +131,8 @@ export function useAudioRecorder(onComplete: (blob: Blob, mimeType: string) => v
       release();
       setRecording(false);
       return false;
+    } finally {
+      starting.current = false;
     }
   }, [supported, release, finish]);
 

@@ -122,7 +122,7 @@ export function AnswerText({ text }: { text: string }) {
   return (
     <div className="prose-answer flex flex-col gap-2.5 text-[16px] leading-[26px]">
       {parseAnswer(text).map((b, i) => {
-        // biome-ignore lint/suspicious/noArrayIndexKey: blocks are derived once per answer
+        // Blocks are derived once per answer, so their index is a stable key.
         const key = i;
         switch (b.type) {
           case "h": {
@@ -239,14 +239,15 @@ function Lines({ lines }: { lines: string[] }) {
 }
 
 // No `_italic_`: file and model names carry underscores.
-const INLINE = /(\*\*[^*]+\*\*|`[^`]+`|\[\d+\]|\*[^*\s][^*]*\*)/g;
+// A chip is [1]…[99] (a card number); "[2024]" stays text.
+const INLINE = /(\*\*[^*]+\*\*|`[^`]+`|\[\d{1,2}\]|\*[^*\s][^*]*\*)/g;
 
 function Inline({ text }: { text: string }): ReactNode {
   const parts = text.split(INLINE).filter(Boolean);
   return (
     <>
       {parts.map((part, i) => {
-        const cite = /^\[(\d+)\]$/.exec(part);
+        const cite = /^\[(\d{1,2})\]$/.exec(part);
         if (cite) {
           return (
             <sup

@@ -193,7 +193,14 @@ export function TroubleshootAgent({
       }
       router.refresh();
     } catch {
-      if (shown.current === view) setError("unreachable");
+      if (shown.current === view) {
+        setError("unreachable");
+        // As on a refusal: the text and the photo go back, or a photo-only Retry sent nothing.
+        if (!body.outcome) {
+          setText(body.text ?? "");
+          setPhoto(outgoing);
+        }
+      }
     } finally {
       if (shown.current === view) setPending(null);
     }

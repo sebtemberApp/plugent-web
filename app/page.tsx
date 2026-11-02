@@ -24,7 +24,17 @@ const PROMISES = [
   },
 ];
 
-const SEBTEMBER = "https://sebtember.app";
+/**
+ * This deployment's sebtember.app: Preview signs in against dev.sebtember.app, so its top-up,
+ * Terms and Privacy links go there too, not to production.
+ */
+const SEBTEMBER = (() => {
+  try {
+    return new URL(process.env.SEBTEMBER_API_ORIGIN?.trim() || "https://sebtember.app").origin;
+  } catch {
+    return "https://sebtember.app";
+  }
+})();
 
 const PRICING = [
   {
@@ -193,11 +203,11 @@ export default async function Landing() {
           </p>
         </section>
 
-        <section className="flex flex-col items-start gap-4 rounded-card bg-[#16152E] p-6 text-white sm:p-10">
+        <section className="flex flex-col items-start gap-4 rounded-card bg-band p-6 text-on-band sm:p-10">
           <h2 className="text-[30px] leading-[36px] font-bold tracking-[-0.02em]">
             Plug in your knowledge. Pick a task.
           </h2>
-          <p className="max-w-[560px] text-[17px] leading-[27px] text-white/75">
+          <p className="max-w-[560px] text-[17px] leading-[27px] text-on-band/75">
             No setup and no new account. If you already use sebtember.app, your documents are
             waiting.
           </p>

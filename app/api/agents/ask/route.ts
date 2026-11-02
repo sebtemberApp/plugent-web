@@ -21,7 +21,7 @@ import { randomUUID } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { after, type NextRequest, NextResponse } from "next/server";
 import { AskRefused, HISTORY_MESSAGES, MAX_QUESTION_CHARS, runAsk } from "@/lib/agents/ask";
-import { askPendingRef, askStopRef } from "@/lib/ask-stop";
+import { askPendingRef, askStopRef, inADay } from "@/lib/ask-stop";
 import { getSessionUser } from "@/lib/auth/session";
 import { readPrefs } from "@/lib/prefs";
 import { consumeRateLimit } from "@/lib/rate-limit";
@@ -59,14 +59,15 @@ export async function POST(req: NextRequest) {
   const runId = body?.runId == null ? null : String(body.runId);
   // Checked before any money is spent: a stale or foreign run id is refused for free, and the
   // run is claimed, so a second question in the same chat waits for the first.
+  // The rate limit FIRST: it can throw (a contended transaction), and a throw after the claim
+  // left the run "busy" for 5.5 minutes.
+  if (!(await consumeRateLimit(user.uid, "agents"))) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+  }
   if (runId !== null) {
     const claim = isRunId(runId) ? await claimRun(user.uid, runId, "chat") : null;
     if (claim === null) return NextResponse.json({ error: "run_not_found" }, { status: 404 });
     if (claim === "busy") return NextResponse.json({ error: "busy" }, { status: 409 });
-  }
-  if (!(await consumeRateLimit(user.uid, "agents"))) {
-    if (runId) await releaseRun(user.uid, runId);
-    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
   const uid = user.uid;
   const encoder = new TextEncoder();
@@ -102,7 +103,9 @@ export async function POST(req: NextRequest) {
   );
   const pending = askPendingRef(uid, ids.turnId);
   await pending
-    .set({ runId: ids.runId, at: FieldValue.serverTimestamp() })
+    // A day's TTL (`expireAt`, firestore.indexes.json): a marker left by a killed function, or a
+    // failed answer's reason, is gone once no reader can still be waiting on it.
+    .set({ runId: ids.runId, at: FieldValue.serverTimestamp(), expireAt: inADay() })
     .catch((err) => console.warn("[ask] pending marker", err));
   send({ type: "start", stopId: stopRef.id, runId: ids.runId, turnId: ids.turnId });
   const work = (async () => {

@@ -167,6 +167,8 @@ const MODES: AskMode[] =
 const CONCURRENCY = Math.max(1, Number(parseFlag("concurrency") ?? 4) || 4);
 
 const cases = (casesFile as BehaviorCase[]).filter((c) => !CASE_FILTER || c.id === CASE_FILTER);
+/** The 22 cases baked on 2026-11-01. Raise it when cases are added; never lower it to pass. */
+const MIN_CASES = 22;
 
 /* --------------------------------------------------------------------- helpers */
 
@@ -456,6 +458,14 @@ async function main() {
     `   checks:           ${assertChecks} deterministic + ${judgeChecks} judged + Plugent's own`,
   );
 
+  // ⚠️ An empty or emptied suite must never pass as green: the whole file (no `--case=` filter)
+  // holds at least the baked cases, and a run has something that can fail.
+  if (!CASE_FILTER && cases.length < MIN_CASES)
+    shapeErrs.push(`only ${cases.length} cases — the suite holds at least ${MIN_CASES}`);
+  if (CASE_FILTER && cases.length === 0) shapeErrs.push(`no case has the id "${CASE_FILTER}"`);
+  if (cases.length > 0 && cases.every((c) => c.informational))
+    shapeErrs.push("every case is informational — nothing can fail the gate");
+
   if (shapeErrs.length > 0) {
     console.error(`\n❌ ${shapeErrs.length} case-shape error(s):`);
     for (const e of shapeErrs) console.error(`   - ${e}`);
@@ -525,7 +535,7 @@ async function main() {
   console.log(`report → ${reportPath}\n`);
 
   // CI gate: a BLOCKING failure is a regression → exit 1. Informational cases never fail it.
-  if (blockingFailed.length > 0) process.exit(1);
+  if (blockingFailed.length > 0 || blocking.length === 0) process.exit(1);
 }
 
 main().catch((err) => {

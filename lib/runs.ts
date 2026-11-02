@@ -17,7 +17,7 @@ import type { AskResult, AskSource } from "@/lib/agents/ask";
 import type { AgentId } from "@/lib/agents/registry";
 import type { StepData, StepOutcomeKind } from "@/lib/agents/troubleshoot-prompts";
 import { plugentDb } from "@/lib/firebase/admin";
-import { SIDEBAR_RUNS } from "@/lib/run-pages";
+import { OLDER_RUNS_PAGE, SIDEBAR_RUNS } from "@/lib/run-pages";
 import type { ChargeUsage } from "@/lib/sebtember/products";
 import { linkUnpaid } from "@/lib/unpaid";
 import type { TurnCharge } from "@/lib/usage";
@@ -350,18 +350,45 @@ export async function renameRun(uid: string, runId: string, title: string): Prom
  * `deleted_runs/{runId}` record (no question, no answer), so the Usage page still shows what the
  * wallet really paid (audit B11).
  */
-export async function deleteRun(uid: string, runId: string): Promise<void> {
+/** A Chat, Specification/Quotation or Troubleshooting run a request is still answering. */
+export async function isRunBusy(uid: string, runId: string): Promise<boolean> {
+  const doc = await runs(uid).doc(runId).get();
+  const running = doc.get("running");
+  if (!doc.exists || doc.get("agent") === "pricing" || !running) return false;
+  const stale = doc.get("agent") === "troubleshooting" ? TS_STALE_MS : RUN_STALE_MS;
+  return Date.now() - millis(running) < stale;
+}
+
+export async function deleteRun(uid: string, runId: string): Promise<"busy" | undefined> {
   const ref = runs(uid).doc(runId);
-  const [doc, turns] = await Promise.all([ref.get(), ref.collection("turns").get()]);
+  const [doc, turns, kept] = await Promise.all([
+    ref.get(),
+    ref.collection("turns").get(),
+    plugentDb().collection("unpaid_charges").where("uid", "==", uid).get(),
+  ]);
+  // ⚠️ A run still answering is not deleted: its answer was already charged, and its save (an
+  // update of this run) would fail on the missing document, so the charge would land on no turn
+  // and in no record. A Pricing run is the exception: deleting it cancels its step on sebtember.
+  const running = doc.get("running");
+  if (doc.exists && doc.get("agent") !== "pricing" && running) {
+    const stale = doc.get("agent") === "troubleshooting" ? TS_STALE_MS : RUN_STALE_MS;
+    if (Date.now() - millis(running) < stale) return "busy";
+  }
+  // Lines of this run still kept unpaid: paid later, they go to the deleted run's record.
+  const unpaidHere = kept.docs.filter((d) =>
+    String(d.get("turnPath") ?? "").startsWith(`${ref.path}/`),
+  );
   if (doc.exists) {
     const spent = turns.docs.flatMap((t): Spent[] => {
       const at = millis(t.get("createdAt"));
       const charges = t.get("charges");
       if (Array.isArray(charges) && charges.length > 0) return [{ at, charges }];
       const tokens = Number(t.get("tokens") ?? 0);
+      // A turn whose only line is still unpaid has no `charges`: not spent (yet).
+      if (unpaidHere.some((d) => d.get("turnPath") === t.ref.path)) return [];
       return tokens > 0 ? [{ at, tokens }] : [];
     });
-    if (spent.length > 0) {
+    if (spent.length > 0 || unpaidHere.length > 0) {
       await deletedRuns(uid)
         .doc(runId)
         .set({
@@ -371,9 +398,16 @@ export async function deleteRun(uid: string, runId: string): Promise<void> {
           deletedAt: FieldValue.serverTimestamp(),
           spent,
         });
+      const record = deletedRuns(uid).doc(runId).path;
+      await Promise.all(
+        unpaidHere.map((d) =>
+          d.ref.update({ turnPath: FieldValue.delete(), deletedRunPath: record }),
+        ),
+      );
     }
   }
   await plugentDb().recursiveDelete(ref);
+  return undefined;
 }
 
 function deletedRuns(uid: string) {
@@ -628,6 +662,61 @@ export async function readPricingRun(uid: string, runId: string): Promise<Pricin
   };
 }
 
+/** How long a claimed match step holds the run (above the route's 300 s, so a live one is never taken). */
+const MATCH_CLAIM_MS = 310_000;
+
+/**
+ * Claims the run's next match step and names its request id — ON THE SERVER, never from the
+ * browser: a client-chosen id let a replayed id read as a duplicate line on sebtember (the work
+ * unbilled), and two tabs or a reload sent continuations under different ids (charged twice).
+ * A new match mints an id; a continuation takes the stored one and the next number. One step at a
+ * time per run: "busy" while another holds it, "no_match" for a continuation with no match.
+ */
+export async function claimPricingMatch(
+  uid: string,
+  runId: string,
+  kind: "new" | "continue",
+): Promise<{ requestId: string; n: number } | "busy" | "no_match"> {
+  const ref = runs(uid).doc(runId);
+  return plugentDb().runTransaction(async (tx) => {
+    const doc = await tx.get(ref);
+    const busyUntil = doc.get("matchBusyUntil") as Timestamp | undefined;
+    if (busyUntil && busyUntil.toMillis() > Date.now()) return "busy" as const;
+    const stored = doc.get("matchRequestId");
+    let requestId: string;
+    let n: number;
+    if (kind === "new") {
+      requestId = `${runId}-${crypto.randomUUID().slice(0, 8)}`;
+      n = 0;
+    } else {
+      if (typeof stored !== "string" || !stored) return "no_match" as const;
+      requestId = stored;
+      n = Number(doc.get("matchCont") ?? 0) + 1;
+    }
+    tx.update(ref, {
+      matchRequestId: requestId,
+      matchCont: n,
+      matchBusyUntil: Timestamp.fromMillis(Date.now() + MATCH_CLAIM_MS),
+    });
+    return { requestId, n };
+  });
+}
+
+/** Frees the run after a match step; a continuation that failed gives its number back for a retry. */
+export async function releasePricingMatch(
+  uid: string,
+  runId: string,
+  claim: { n: number },
+  failed: boolean,
+): Promise<void> {
+  await runs(uid)
+    .doc(runId)
+    .update({
+      matchBusyUntil: FieldValue.delete(),
+      ...(failed && claim.n > 0 ? { matchCont: claim.n - 1 } : {}),
+    });
+}
+
 /** One step sebtember charged: kept as a turn (with its usage) and added to the run's total. */
 export async function recordPricingCharge(
   uid: string,
@@ -638,9 +727,25 @@ export async function recordPricingCharge(
 ): Promise<void> {
   const ref = runs(uid).doc(runId);
   const now = FieldValue.serverTimestamp();
-  const batch = plugentDb().batch();
-  // The line id is the turn id, so a retried step that sebtember reports again is one turn.
-  batch.set(ref.collection("turns").doc(lineId), {
+  const turnRef = ref.collection("turns").doc(lineId);
+  // The line id is the turn id, so a retried step that sebtember reports again is one turn — and
+  // the run's counters move only when the turn is new (a batch counted a repeat twice).
+  await plugentDb().runTransaction(async (batch) => {
+    if ((await batch.get(turnRef)).exists) return;
+    recordPricingTurn(batch, ref, turnRef, step, lineId, charge, now);
+  });
+}
+
+function recordPricingTurn(
+  batch: FirebaseFirestore.Transaction,
+  ref: FirebaseFirestore.DocumentReference,
+  turnRef: FirebaseFirestore.DocumentReference,
+  step: "extract" | "match",
+  lineId: string,
+  charge: { tokens: number; usage?: ChargeUsage[] },
+  now: FieldValue,
+): void {
+  batch.set(turnRef, {
     kind: "charge",
     step,
     by: "sebtember",
@@ -662,7 +767,6 @@ export async function recordPricingCharge(
     turnCount: FieldValue.increment(1),
     updatedAt: now,
   });
-  await batch.commit();
 }
 
 export async function touchRun(uid: string, runId: string, title?: string): Promise<void> {
@@ -691,6 +795,11 @@ export interface UsageRun {
 }
 
 const USAGE_RUNS = 200;
+/**
+ * A bounded period reads further: newer runs (updated after the period) come first in the
+ * query, so at 200 a heavy user's past month was cut and its tiles read low.
+ */
+const USAGE_RUNS_PERIOD = 1000;
 
 /** What one turn cost: its lines, or a bare total from before turns kept them. */
 type Spent = { at: number; charges?: unknown; tokens?: unknown };
@@ -736,10 +845,11 @@ export async function readUsage(
   since: number | null,
   until: number | null,
 ): Promise<{ runs: UsageRun[]; truncated: boolean }> {
+  const cap = since !== null ? USAGE_RUNS_PERIOD : USAGE_RUNS;
   const window = <T extends FirebaseFirestore.Query>(q: T) =>
     (since !== null ? q.where("updatedAt", ">=", new Date(since)) : q)
       .orderBy("updatedAt", "desc")
-      .limit(USAGE_RUNS);
+      .limit(cap);
   const [live, gone] = await Promise.all([window(runs(uid)).get(), window(deletedRuns(uid)).get()]);
   const inWindow = (at: number) =>
     (since === null || at >= since) && (until === null || at < until);
@@ -752,7 +862,9 @@ export async function readUsage(
         turns.docs.map((t) => ({
           at: millis(t.get("createdAt")),
           charges: t.get("charges"),
-          tokens: t.get("tokens"),
+          // A turn whose line is still unpaid (`charged: false`, no `charges`) took nothing from
+          // the wallet yet: when it is paid, `retryUnpaid` adds its charge to the turn.
+          tokens: t.get("charged") === false ? 0 : t.get("tokens"),
         })),
         inWindow,
       );
@@ -768,6 +880,62 @@ export async function readUsage(
   ]);
   return {
     runs: read.filter((r): r is UsageRun => r !== null).sort((a, b) => b.lastAt - a.lastAt),
-    truncated: live.size === USAGE_RUNS || gone.size === USAGE_RUNS,
+    truncated: live.size === cap || gone.size === cap,
   };
+}
+
+/* ---------------------------------------------------------------- older runs */
+
+/**
+ * One agent's older runs, for the sidebar's "Show more" (audit F4). The layout reads only the
+ * SIDEBAR_RUNS newest runs across all agents; this reads further back, one agent at a time.
+ *
+ * ⚠️ NO COMPOSITE INDEX: the runs are scanned newest first on `updatedAt` alone (the index
+ * Firestore builds by itself) and filtered by agent here, so nothing needs deploying. A call
+ * reads at most SCAN_BATCHES × SCAN_BATCH runs and hands back a cursor to continue from.
+ * ⚠️ THE CURSOR IS INCLUSIVE (`updatedAt` < cursor + 1 ms): a run sharing the boundary
+ * millisecond comes back twice rather than never, and the sidebar drops the repeat by id.
+ */
+const SCAN_BATCH = 100;
+const SCAN_BATCHES = 5;
+
+export interface OlderRuns {
+  runs: RunSummary[];
+  /** Where the next "Show more" starts (ms); null when the history is exhausted. */
+  cursor: number | null;
+}
+
+/** Up to OLDER_RUNS_PAGE of `agent`'s runs last updated at or before `beforeMs`, newest first. */
+export async function listOlderRuns(
+  uid: string,
+  agent: AgentId,
+  beforeMs: number,
+): Promise<OlderRuns> {
+  const base = runs(uid)
+    .where("updatedAt", "<", Timestamp.fromMillis(beforeMs + 1))
+    .orderBy("updatedAt", "desc");
+  const found: RunSummary[] = [];
+  let last: FirebaseFirestore.QueryDocumentSnapshot | null = null;
+  for (let batch = 0; batch < SCAN_BATCHES; batch++) {
+    const snap = await (last ? base.startAfter(last) : base).limit(SCAN_BATCH).get();
+    for (const d of snap.docs) {
+      const data = d.data();
+      if (data.agent !== agent) continue;
+      found.push({
+        id: d.id,
+        agent: data.agent,
+        title: String(data.title ?? "Untitled"),
+        updatedAt: millis(data.updatedAt),
+        tokensUsed: Number(data.tokensUsed ?? 0),
+        turnCount: Number(data.turnCount ?? 0),
+      });
+      if (found.length === OLDER_RUNS_PAGE) {
+        return { runs: found, cursor: millis(data.updatedAt) };
+      }
+    }
+    if (snap.size < SCAN_BATCH) return { runs: found, cursor: null };
+    last = snap.docs[snap.docs.length - 1] ?? null;
+  }
+  // Scanned the call's budget without filling a page: more may lie further back.
+  return { runs: found, cursor: last ? millis(last.get("updatedAt")) : null };
 }

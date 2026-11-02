@@ -81,18 +81,28 @@ export function startPricing(
   return post<PricingUpload>("/api/products/pricing/start", { uid, ...file });
 }
 
+/**
+ * A step (extract, match) runs on sebtember for up to its own 300 s; Plugent waits 270 s, so the
+ * route still has time to keep the step's charge as a turn when sebtember answers late.
+ */
+const PRICING_STEP_TIMEOUT_MS = 270_000;
+
 export function extractPricing(
   uid: string,
   source: string,
   pricingId: string,
   requestId: string,
 ): Promise<PricingStepResult> {
-  return post<PricingStepResult>("/api/products/pricing/extract", {
-    uid,
-    source,
-    pricing_id: pricingId,
-    request_id: requestId,
-  });
+  return post<PricingStepResult>(
+    "/api/products/pricing/extract",
+    {
+      uid,
+      source,
+      pricing_id: pricingId,
+      request_id: requestId,
+    },
+    { timeoutMs: PRICING_STEP_TIMEOUT_MS },
+  );
 }
 
 export function matchPricing(
@@ -103,14 +113,18 @@ export function matchPricing(
   keep: number[] | undefined,
   continuation?: number,
 ): Promise<PricingStepResult> {
-  return post<PricingStepResult>("/api/products/pricing/match", {
-    uid,
-    source,
-    pricing_id: pricingId,
-    request_id: requestId,
-    ...(keep ? { keep } : {}),
-    ...(continuation ? { continue: continuation } : {}),
-  });
+  return post<PricingStepResult>(
+    "/api/products/pricing/match",
+    {
+      uid,
+      source,
+      pricing_id: pricingId,
+      request_id: requestId,
+      ...(keep ? { keep } : {}),
+      ...(continuation ? { continue: continuation } : {}),
+    },
+    { timeoutMs: PRICING_STEP_TIMEOUT_MS },
+  );
 }
 
 export function getPricing(uid: string, pricingId: string, rescan = false): Promise<PricingRun> {

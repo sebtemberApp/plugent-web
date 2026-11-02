@@ -11,6 +11,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  // A setup tool: in production it showed any signed-in user the service account, the product
+  // API's audience and sebtember's raw replies. /api/health still says what is configured.
+  if (process.env.VERCEL_ENV === "production") {
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "sign in first" }, { status: 401 });
   try {

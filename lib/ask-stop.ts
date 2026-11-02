@@ -4,7 +4,13 @@
  * a stop id can only ever stop the user's own answer. The answer deletes it when it ends.
  */
 import "server-only";
+import { Timestamp } from "firebase-admin/firestore";
 import { plugentDb } from "@/lib/firebase/admin";
+
+/** `expireAt` for a Stop or pending document: Firestore's TTL removes it a day later. */
+export function inADay(): Timestamp {
+  return Timestamp.fromMillis(Date.now() + 86_400_000);
+}
 
 export function isStopId(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value);

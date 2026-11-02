@@ -202,7 +202,7 @@ function Troubleshooting() {
         The outdoor unit shows E02 and stops after two minutes.
       </div>
       <div className="flex items-center gap-2 rounded-chip bg-fill1 px-3 py-2 text-ink2">
-        <span className="flex size-5 items-center justify-center rounded-full bg-ok text-[11px] font-bold text-white">
+        <span className="flex size-5 items-center justify-center rounded-full bg-ok text-[11px] font-bold text-on-accent">
           1
         </span>
         Check the water flow · didn't help

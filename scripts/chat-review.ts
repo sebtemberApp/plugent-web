@@ -21,10 +21,10 @@
  *   pnpm chat:review -- --dry-run        # load and build the judge prompts only: no model call, no write
  *   pnpm chat:review -- --days=30 --limit=50
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { config as dotenvConfig } from "dotenv";
-import { FieldValue } from "firebase-admin/firestore";
+import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { CHAT_PROMPT_VERSION } from "@/lib/agents/chat-prompt";
 import { plugentDb } from "@/lib/firebase/admin";
 import {
@@ -49,6 +49,8 @@ const DAYS = Math.max(1, Number(flag("days") ?? 14) || 14);
 const LIMIT = Math.max(1, Number(flag("limit") ?? 200) || 200);
 const DRY = process.argv.includes("--dry-run");
 const OUT = "review-out";
+/** A review quotes users' data, so it is kept no longer than the traces it was built from. */
+const REVIEW_TTL_DAYS = 30;
 
 async function pool<T, R>(items: T[], n: number, fn: (x: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
@@ -71,6 +73,9 @@ function writeProposal(summary: Record<string, unknown>) {
 }
 
 async function main() {
+  // An earlier run's files must never pass for this run's: a run that fails leaves none.
+  rmSync(path.join(OUT, "proposal.json"), { force: true });
+  rmSync(path.join(OUT, "report.json"), { force: true });
   const db = plugentDb();
   const conversations = await loadConversations(db, DAYS, LIMIT);
   const turns = conversations.reduce((n, c) => n + c.turns.length, 0);
@@ -82,9 +87,17 @@ async function main() {
   console.log(`   ${conversations.length} conversations, ${turns} turns (${traced} with a trace)`);
 
   if (DRY) {
-    const sizes = conversations.map((c) => judgePrompt(c).length);
+    let broken = 0;
+    const sizes = conversations.map((c) => {
+      try {
+        return judgePrompt(c).length;
+      } catch {
+        broken++;
+        return 0;
+      }
+    });
     console.log(
-      `   dry run: ${sizes.length} judge prompts built, ${Math.max(0, ...sizes)} chars at most. No model call, nothing saved.\n`,
+      `   dry run: ${sizes.length - broken} judge prompts built (${broken} malformed), ${Math.max(0, ...sizes)} chars at most. No model call, nothing saved.\n`,
     );
     return;
   }
@@ -105,7 +118,7 @@ async function main() {
   const fixable = results
     .flatMap((r) => r.gaps)
     .filter((g) => g.severity === "material" && PROMPT_LEVERS.includes(g.lever));
-  const proposal = await propose(fixable);
+  const proposal = await propose(fixable, conversations);
 
   console.log(
     `\n   verdicts: ${t.verdicts.good} good · ${t.verdicts.minor} minor · ${t.verdicts.material} material · ${t.errors} unjudged`,
@@ -126,32 +139,46 @@ async function main() {
       `\n   PROPOSAL: ${proposal.title}\n   ${proposal.problem}\n   addresses ${proposal.addresses?.gaps}/${proposal.addresses?.of} · ${proposal.cases.length} new case(s)`,
     );
 
+  // proposal.json FIRST: a failed save below must not leave the routine without it.
   const at = new Date().toISOString();
-  const ref = await db.collection("chat_reviews").add({
-    createdAt: FieldValue.serverTimestamp(),
-    windowDays: DAYS,
-    promptVersion: CHAT_PROMPT_VERSION,
-    judge: JUDGE_MODEL,
-    tally: t,
-    results,
-    proposal,
-  });
-  mkdirSync(OUT, { recursive: true });
-  writeFileSync(
-    path.join(OUT, "report.json"),
-    JSON.stringify({ id: ref.id, at, tally: t, results, proposal }, null, 2),
-  );
-  writeProposal({
-    reviewId: ref.id,
+  const summary = {
+    reviewId: null as string | null,
     at,
     promptVersion: CHAT_PROMPT_VERSION,
     counts,
     tally: t,
     proposal,
-  });
-  console.log(
-    `\n   saved: chat_reviews/${ref.id} · ${OUT}/report.json (private) · ${OUT}/proposal.json\n`,
+  };
+  writeProposal(summary);
+  writeFileSync(
+    path.join(OUT, "report.json"),
+    JSON.stringify({ at, tally: t, results, proposal }, null, 2),
   );
+  try {
+    // `uids` lets an account's deletion remove its results; `expireAt` is the TTL
+    // (firestore.indexes.json), so the review quotes no one past the traces' 30 days.
+    const ref = await db.collection("chat_reviews").add({
+      createdAt: FieldValue.serverTimestamp(),
+      expireAt: Timestamp.fromMillis(Date.now() + REVIEW_TTL_DAYS * 86_400_000),
+      windowDays: DAYS,
+      promptVersion: CHAT_PROMPT_VERSION,
+      judge: JUDGE_MODEL,
+      tally: t,
+      uids: [...new Set(results.map((r) => r.uid))],
+      results,
+      proposal,
+    });
+    writeProposal({ ...summary, reviewId: ref.id });
+    console.log(
+      `\n   saved: chat_reviews/${ref.id} · ${OUT}/report.json (private) · ${OUT}/proposal.json\n`,
+    );
+  } catch (err) {
+    writeProposal({ ...summary, saveError: "the review was not saved to Firestore" });
+    console.error(
+      `\n   NOT SAVED to Firestore (${String((err as Error)?.message ?? err).slice(0, 120)}); ${OUT}/proposal.json is written.\n`,
+    );
+    process.exitCode = 1;
+  }
 }
 
 main().catch((err) => {

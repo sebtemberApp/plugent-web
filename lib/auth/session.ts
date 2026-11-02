@@ -33,10 +33,21 @@ function sign(payload: string): string {
   return createHmac("sha256", secret()).update(payload).digest("base64url");
 }
 
+/**
+ * ⚠️ The Sebtember project the login came from is IN the cookie and checked on every read: with
+ * one session secret on Preview and Production, a cookie minted on dev (a `sebtember-app-dev`
+ * uid, which dev tooling can mint for any uid) was a valid session on prod.
+ */
+function sessionAudience(): string {
+  return process.env.NEXT_PUBLIC_SEBTEMBER_FIREBASE_PROJECT_ID?.trim() ?? "";
+}
+
 /** The cookie value for a verified user: base64url(json).signature */
 export function mintSession(user: SessionUser): string {
   const exp = Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000;
-  const payload = Buffer.from(JSON.stringify({ ...user, exp })).toString("base64url");
+  const payload = Buffer.from(JSON.stringify({ ...user, aud: sessionAudience(), exp })).toString(
+    "base64url",
+  );
   return `${payload}.${sign(payload)}`;
 }
 
@@ -52,6 +63,8 @@ export function readSession(value: string | undefined): SessionUser | null {
     if (typeof data.uid !== "string" || typeof data.exp !== "number" || data.exp < Date.now()) {
       return null;
     }
+    // A cookie from another environment, or minted before the audience was kept, signs in again.
+    if (!sessionAudience() || data.aud !== sessionAudience()) return null;
     return { uid: data.uid, email: typeof data.email === "string" ? data.email : null };
   } catch {
     return null;

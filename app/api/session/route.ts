@@ -24,7 +24,28 @@ export async function POST(req: NextRequest) {
   }
 }
 
+/**
+ * ⚠️ Login CSRF: only Plugent's own page may sign a browser in. A cross-site `text/plain` form
+ * could post valid JSON here and sign the victim in as the attacker (their questions and price
+ * lists then landing in the attacker's history). A form cannot send `application/json`, and the
+ * browser's Origin names the page that sent it.
+ */
+function sameOrigin(req: NextRequest): boolean {
+  if (!(req.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json")) {
+    return false;
+  }
+  const origin = req.headers.get("origin");
+  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+  if (!origin || !host) return false;
+  try {
+    return new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
 async function createSession(req: NextRequest) {
+  if (!sameOrigin(req)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const body = await req.json().catch(() => null);
   const idToken = typeof body?.idToken === "string" ? body.idToken : "";
   const user = idToken ? await verifySebtemberIdToken(idToken) : null;
