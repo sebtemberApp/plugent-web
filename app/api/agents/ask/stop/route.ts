@@ -6,7 +6,7 @@
  */
 import { FieldValue } from "firebase-admin/firestore";
 import { type NextRequest, NextResponse } from "next/server";
-import { askStopRef, isStopId } from "@/lib/ask-stop";
+import { askStopRef, inADay, isStopId } from "@/lib/ask-stop";
 import { getSessionUser } from "@/lib/auth/session";
 import { consumeRateLimit, STOPS_PER_MINUTE } from "@/lib/rate-limit";
 
@@ -21,6 +21,7 @@ export async function POST(req: NextRequest) {
   if (!(await consumeRateLimit(user.uid, "stop", STOPS_PER_MINUTE))) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
-  await askStopRef(user.uid, stopId).set({ at: FieldValue.serverTimestamp() });
+  // A Stop that arrived after its answer ended is left behind: the TTL (`expireAt`) removes it.
+  await askStopRef(user.uid, stopId).set({ at: FieldValue.serverTimestamp(), expireAt: inADay() });
   return NextResponse.json({ ok: true });
 }

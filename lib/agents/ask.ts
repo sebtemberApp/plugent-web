@@ -38,6 +38,7 @@ import {
   citedSources,
   type HistoryMessage,
   readAnswer,
+  renumberMarks,
 } from "@/lib/agents/ask-prompt";
 import { CHAT_PROMPT_VERSION, SYSTEM_INSTRUCTION_GPT } from "@/lib/agents/chat-prompt";
 import { sanitizeClarify } from "@/lib/agents/clarify";
@@ -345,7 +346,9 @@ export async function runAsk(
   } finally {
     stream.stop?.removeEventListener("abort", onStop);
   }
-  const stopped = (model.signal.aborted && model.signal.reason === "stopped") || cut;
+  // A Stop that lands after the model's `finish` (the answer is whole) does not make it stopped.
+  const stopped =
+    (model.signal.aborted && model.signal.reason === "stopped" && totalUsage === null) || cut;
   if (!totalUsage && !stopped) throw new Error("ask: the stream ended without usage");
   // ⚠️ A FINISHED ANSWER WITH NO TEXT and no usable question back (deep reasoning that spent every
   // output token, a clarify call too thin to show) is a failed answer, never a blank card charged
@@ -432,14 +435,16 @@ export async function runAsk(
   }
 
   const read = readAnswer(text);
-  const answer = read.answer;
   // A stopped or cut-off answer (Stop, a failure, the output limit) never reached its SOURCES
   // line: it cites nothing rather than every passage.
   const used = stopped || finishReason === "length" ? (read.used ?? []) : read.used;
+  const sources = citedSources(read.answer, search.passages, await catalogueInfo, used);
+  // The [n] chips name the cards, not the passages.
+  const answer = renumberMarks(read.answer, search.passages, sources);
   return {
     kind: "answer",
     answer,
-    sources: citedSources(answer, search.passages, await catalogueInfo, used),
+    sources,
     tokens: searchTokens + answerTokens,
     balanceAfter,
     charged,

@@ -286,15 +286,19 @@ export function ChatAgent({
   // Opened while the run is still answering (audit N1): the page looks again every few seconds,
   // and shows the answer once it is saved.
   const wasWriting = useRef(writing);
+  const writingSince = useRef(Date.now());
   // biome-ignore lint/correctness/useExhaustiveDependencies: the stored turns arrive with the props
   useEffect(() => {
     if (wasWriting.current && !writing && initialRunId === runId) {
       setTurns(fromStored(initialTurns));
       refreshBalance();
     }
+    // The look-again budget runs from when writing BEGAN: `initialTurns` is new after every
+    // refresh, so a start taken here reset each time and the cap never ended the polling.
+    if (writing && !wasWriting.current) writingSince.current = Date.now();
     wasWriting.current = writing;
     if (!writing) return;
-    const started = Date.now();
+    const started = writingSince.current;
     const id = setInterval(() => {
       if (Date.now() - started > FIND_ANSWER_MS) clearInterval(id);
       else router.refresh();
@@ -302,7 +306,9 @@ export function ChatAgent({
     return () => clearInterval(id);
   }, [writing, initialTurns]);
   const lastKind = turns.at(-1)?.state.kind;
-  const busy = lastKind === "pending" || lastKind === "streaming";
+  // A run still being answered elsewhere (`writing`) takes no new question: it was refused 409
+  // "busy", and the error turn was wiped when the first answer landed.
+  const busy = lastKind === "pending" || lastKind === "streaming" || writing;
   // The streaming answer's Stop id (`/api/agents/ask/stop`); null when nothing can be stopped.
   const [stopId, setStopId] = useState<string | null>(null);
 
@@ -535,7 +541,7 @@ export function ChatAgent({
               sourceCards={ui.sourceCards}
             />
           ))}
-          {writing && !busy && (
+          {writing && lastKind !== "pending" && lastKind !== "streaming" && (
             <p role="status" className="text-[15px] text-ink2">
               The answer to the last question is still being written and will appear here.
             </p>
@@ -779,8 +785,12 @@ function streamingText(text: string): string {
   for (let i = lines.length - 1; i >= Math.max(0, lines.length - 3); i--) {
     const line = (lines[i] ?? "").trim().replace(/^\*+/, "").toUpperCase();
     const isLast = i === lines.length - 1;
-    // The finished line, or (while it is still being written) a beginning of "SOURCES".
-    if (/^SOURCES\b/.test(line) || (isLast && line.length >= 3 && "SOURCES".startsWith(line))) {
+    // The finished line ("SOURCES:" — the colon, so "Sources of heat loss…" stays), or, while it
+    // is still being written, a beginning of "SOURCES:".
+    if (
+      /^SOURCES\s*\**\s*:/.test(line) ||
+      (isLast && line.length >= 3 && "SOURCES:".startsWith(line))
+    ) {
       return lines.slice(0, i).join("\n").trimEnd();
     }
   }

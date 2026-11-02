@@ -21,7 +21,7 @@ import { randomUUID } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { after, type NextRequest, NextResponse } from "next/server";
 import { AskRefused, HISTORY_MESSAGES, MAX_QUESTION_CHARS, runAsk } from "@/lib/agents/ask";
-import { askPendingRef, askStopRef } from "@/lib/ask-stop";
+import { askPendingRef, askStopRef, inADay } from "@/lib/ask-stop";
 import { getSessionUser } from "@/lib/auth/session";
 import { readPrefs } from "@/lib/prefs";
 import { consumeRateLimit } from "@/lib/rate-limit";
@@ -103,7 +103,9 @@ export async function POST(req: NextRequest) {
   );
   const pending = askPendingRef(uid, ids.turnId);
   await pending
-    .set({ runId: ids.runId, at: FieldValue.serverTimestamp() })
+    // A day's TTL (`expireAt`, firestore.indexes.json): a marker left by a killed function, or a
+    // failed answer's reason, is gone once no reader can still be waiting on it.
+    .set({ runId: ids.runId, at: FieldValue.serverTimestamp(), expireAt: inADay() })
     .catch((err) => console.warn("[ask] pending marker", err));
   send({ type: "start", stopId: stopRef.id, runId: ids.runId, turnId: ids.turnId });
   const work = (async () => {

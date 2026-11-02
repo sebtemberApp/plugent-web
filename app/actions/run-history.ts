@@ -2,7 +2,7 @@
 
 import { getSessionUser } from "@/lib/auth/session";
 import { isAgentId } from "@/lib/prefs";
-import { listOlderRuns, type OlderRuns } from "@/lib/run-history";
+import { listOlderRuns, type OlderRuns } from "@/lib/runs";
 
 /** The sidebar's "Show more": one agent's runs from `beforeMs` back. */
 export async function olderRunsAction(

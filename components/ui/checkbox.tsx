@@ -99,7 +99,7 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
           <CheckIcon
             strokeWidth={3}
             aria-hidden="true"
-            className="h-[70%] w-[70%] text-primary-foreground transition-opacity duration-150"
+            className="h-[70%] w-[70%] text-on-accent transition-opacity duration-150"
           />
         </span>
       </span>

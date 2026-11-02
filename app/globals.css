@@ -44,6 +44,8 @@
   --a-ts: #c24a3a;
   /* Text on a filled agent accent: white on the light accents, page-dark on the dark ones. */
   --on-accent: #ffffff;
+  --band: #16152e;
+  --on-band: #ffffff;
   --a-spec: #2f7d46;
   --a-quo: #6e56cf;
   --a-price: #a23b72;
@@ -76,6 +78,8 @@
     --a-chat: #8dbde6;
     --a-ts: #e8907e;
     --on-accent: #09090f;
+    --band: #16152e;
+    --on-band: #ffffff;
     --a-spec: #7fcb97;
     --a-quo: #b4a5f0;
     --a-price: #e58ab8;
@@ -107,6 +111,8 @@
   --a-chat: #8dbde6;
   --a-ts: #e8907e;
   --on-accent: #09090f;
+  --band: #16152e;
+  --on-band: #ffffff;
   --a-spec: #7fcb97;
   --a-quo: #b4a5f0;
   --a-price: #e58ab8;
@@ -137,6 +143,9 @@
   --color-a-chat: var(--a-chat);
   --color-a-ts: var(--a-ts);
   --color-on-accent: var(--on-accent);
+  /* The landing page's call-to-action band: navy in both themes. */
+  --color-band: var(--band);
+  --color-on-band: var(--on-band);
   --color-a-spec: var(--a-spec);
   --color-a-quo: var(--a-quo);
   --color-a-price: var(--a-price);
