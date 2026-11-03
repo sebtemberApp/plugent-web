@@ -1,6 +1,6 @@
 "use client";
 
-import { signOut } from "firebase/auth";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import {
   ArrowLeftRight,
   ArrowUpRight,
@@ -56,14 +56,27 @@ function OutLink({
   );
 }
 
-/** A small lettered tile standing for another product. */
-function AppTile({ letter, className }: { letter: string; className: string }) {
-  return (
-    <span
-      aria-hidden
-      className={`flex size-5 shrink-0 items-center justify-center rounded-[6px] text-[11px] font-bold text-white ${className}`}
-    >
-      {letter}
+/** Another product's own app icon. */
+function AppIcon({ src }: { src: string }) {
+  return <img src={src} alt="" aria-hidden className="size-5 shrink-0 rounded-[6px]" />;
+}
+
+/** The user's photo from the Sebtember login, or the email's first letter when there is
+ *  none (an email sign-in) or it fails to load. */
+function Avatar({ email }: { email: string | null }) {
+  const [photo, setPhoto] = useState<string | null>(null);
+  useEffect(() => onAuthStateChanged(auth, (u) => setPhoto(u?.photoURL ?? null)), []);
+  return photo ? (
+    <img
+      src={photo}
+      alt=""
+      referrerPolicy="no-referrer"
+      onError={() => setPhoto(null)}
+      className="size-8 shrink-0 rounded-full object-cover"
+    />
+  ) : (
+    <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-[13px] font-bold text-page">
+      {(email ?? "?").slice(0, 1).toUpperCase()}
     </span>
   );
 }
@@ -205,15 +218,12 @@ export function AccountMenu({
                 )}
               </div>
               {sebtemberUrl && (
-                <OutLink
-                  href={sebtemberUrl}
-                  icon={<AppTile letter="S" className="bg-[#16152E] dark:bg-[#3A3A52]" />}
-                >
-                  Open sebtember.app
+                <OutLink href={sebtemberUrl} icon={<AppIcon src="/brands/sebtember.png" />}>
+                  Sebtember
                 </OutLink>
               )}
-              <OutLink href={PEAKPICK_URL} icon={<AppTile letter="P" className="bg-[#2F7D46]" />}>
-                Open peakpick.ai
+              <OutLink href={PEAKPICK_URL} icon={<AppIcon src="/brands/peakpick.svg" />}>
+                PeakPick
               </OutLink>
               <div className="my-1 h-px bg-hair" />
               <Link role="menuitem" href="/agents" onClick={() => setOpen(false)} className={ITEM}>
@@ -308,9 +318,7 @@ export function AccountMenu({
         onClick={() => setOpen((o) => !o)}
         className={`flex items-center gap-2.5 rounded-control p-2 text-left hover:bg-fill1 ${compact ? "" : "w-full"}`}
       >
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-[13px] font-bold text-page">
-          {(email ?? "?").slice(0, 1).toUpperCase()}
-        </span>
+        <Avatar email={email} />
         {!compact && (
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[14px] font-semibold">{email ?? "Account"}</span>
