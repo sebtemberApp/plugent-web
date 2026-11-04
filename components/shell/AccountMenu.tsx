@@ -1,6 +1,6 @@
 "use client";
 
-import { onAuthStateChanged, signOut } from "firebase/auth";
+import { signOut } from "firebase/auth";
 import {
   ArrowLeftRight,
   ArrowUpRight,
@@ -58,17 +58,18 @@ function AppIcon({ src }: { src: string }) {
   return <img src={src} alt="" aria-hidden className="size-5 shrink-0 rounded-[6px]" />;
 }
 
-/** The user's photo from the Sebtember login, or the email's first letter when there is
- *  none (an email sign-in) or it fails to load. */
-function Avatar({ email }: { email: string | null }) {
-  const [photo, setPhoto] = useState<string | null>(null);
-  useEffect(() => onAuthStateChanged(auth, (u) => setPhoto(u?.photoURL ?? null)), []);
-  return photo ? (
+/** The photo Sebtember draws (its profile's `photo_url`, set on /profiles), or the email's
+ *  first letter when there is none or it fails to load. ⚠️ Not the Firebase login's
+ *  `photoURL`: that is Google's grey silhouette for an account without a picture, and never
+ *  a photo set on sebtember.app. */
+function Avatar({ email, photo }: { email: string | null; photo: string | null }) {
+  const [failed, setFailed] = useState<string | null>(null);
+  return photo && failed !== photo ? (
     <img
       src={photo}
       alt=""
       referrerPolicy="no-referrer"
-      onError={() => setPhoto(null)}
+      onError={() => setFailed(photo)}
       className="size-8 shrink-0 rounded-full object-cover"
     />
   ) : (
@@ -107,14 +108,15 @@ export function AccountMenu({
 
   useEffect(() => setTheme(readTheme()), []);
 
-  // The profile is read once, the first time the menu opens; a failed read retries on the NEXT
-  // open. ⚠️ Keyed on `open` only: with `profile` in the deps, "error" re-ran the effect at once
-  // and a failing read looped for as long as the menu stayed open.
+  // The profile is read once, when the menu mounts (the avatar needs its photo before the menu
+  // opens); a failed read retries on the NEXT open. ⚠️ Keyed on `open` only: with `profile` in
+  // the deps, "error" re-ran the effect at once and a failing read looped for as long as the
+  // menu stayed open.
   const profileRef = useRef(profile);
   profileRef.current = profile;
   useEffect(() => {
     const now = profileRef.current;
-    if (!open || (now !== null && now !== "error")) return;
+    if (now !== null && !(open && now === "error")) return;
     setProfile("loading");
     readProfileAction().then(
       (res) => setProfile(res.ok ? res.profile : "error"),
@@ -313,7 +315,7 @@ export function AccountMenu({
         onClick={() => setOpen((o) => !o)}
         className={`flex items-center gap-2.5 rounded-control p-2 text-left hover:bg-fill1 ${compact ? "" : "w-full"}`}
       >
-        <Avatar email={email} />
+        <Avatar email={email} photo={ready?.photo ?? null} />
         {!compact && (
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[14px] font-semibold">{email ?? "Account"}</span>

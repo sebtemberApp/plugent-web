@@ -223,6 +223,9 @@ export function setCataloguePaused(
 /** The user's Sebtember profile (sebtember Step 1183): reply language and their own notes. */
 export interface ProductProfile {
   display_name: string | null;
+  /** The avatar sebtember.app draws (sebtember Step 1289); null when there is none. Absent
+   *  from a sebtember without that step, so read as optional. */
+  photo_url?: string | null;
   /** A language code, "" when unset (a retired language reads as unset). */
   preferred_language: string;
   persona_md: string;

@@ -8,8 +8,10 @@ import {
   updateProfile,
 } from "@/lib/sebtember/products";
 
-/** What the account menu shows: the user's Sebtember reply language and persona brief. */
+/** What the account menu shows: the user's Sebtember photo, reply language and persona brief. */
 export interface ProfileView {
+  /** Sebtember's avatar (an https URL), null when the user has none: the menu draws the initial. */
+  photo: string | null;
   /** A language code, "" when unset (agents answer in the language of the question). */
   language: string;
   persona: string;
@@ -19,7 +21,9 @@ export interface ProfileView {
 type Result = { ok: true; profile: ProfileView } | { ok: false; error: string };
 
 function view(p: ProductProfile): ProfileView {
-  return { language: p.preferred_language, persona: p.persona_md, languages: p.languages };
+  const photo =
+    typeof p.photo_url === "string" && p.photo_url.startsWith("https://") ? p.photo_url : null;
+  return { photo, language: p.preferred_language, persona: p.persona_md, languages: p.languages };
 }
 
 function failure(err: unknown): { ok: false; error: string } {
