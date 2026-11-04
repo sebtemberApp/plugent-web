@@ -31,9 +31,6 @@ const THEMES: { id: ThemeChoice; label: string; icon: React.ReactNode }[] = [
   { id: "dark", label: "Dark", icon: <Moon aria-hidden size={15} /> },
 ];
 
-/** The PeakPick site, which shares the Sebtember login and wallet. */
-const PEAKPICK_URL = "https://peakpick.ai";
-
 const ITEM =
   "flex h-9 w-full items-center gap-2.5 rounded-chip px-2.5 text-left text-[15px] hover:bg-fill1";
 
@@ -56,7 +53,7 @@ function OutLink({
   );
 }
 
-/** Another product's own app icon. */
+/** Sebtember's own app icon. */
 function AppIcon({ src }: { src: string }) {
   return <img src={src} alt="" aria-hidden className="size-5 shrink-0 rounded-[6px]" />;
 }
@@ -84,8 +81,7 @@ function Avatar({ email }: { email: string | null }) {
 /** What an unset language means to the agents: they answer in the language of the question. */
 const NO_LANGUAGE = "Language of my question";
 
-/** The account button at the foot of the sidebar: balance, then four groups — the sibling
- *  sites; All agents and Change wallet; Appearance, Preferred language and About you;
+/** The account button at the foot of the sidebar: balance, then four groups — sebtember.app; All agents and Change wallet; Appearance, Preferred language and About you;
  *  Sign out. Preferred language opens its list in place of the menu (a flyout would not fit
  *  the phone drawer or the rail). Both are the user's Sebtember profile, read when the menu
  *  first opens and shared with sebtember.app.
@@ -218,14 +214,13 @@ export function AccountMenu({
                 )}
               </div>
               {sebtemberUrl && (
-                <OutLink href={sebtemberUrl} icon={<AppIcon src="/brands/sebtember.png" />}>
-                  Sebtember
-                </OutLink>
+                <>
+                  <OutLink href={sebtemberUrl} icon={<AppIcon src="/brands/sebtember.png" />}>
+                    Sebtember
+                  </OutLink>
+                  <div className="my-1 h-px bg-hair" />
+                </>
               )}
-              <OutLink href={PEAKPICK_URL} icon={<AppIcon src="/brands/peakpick.svg" />}>
-                PeakPick
-              </OutLink>
-              <div className="my-1 h-px bg-hair" />
               <Link role="menuitem" href="/agents" onClick={() => setOpen(false)} className={ITEM}>
                 <LayoutGrid aria-hidden size={16} className="text-ink2" />
                 All agents
