@@ -81,3 +81,22 @@ Its instructions:
 
 The operator reviews the draft and merges it (and later promotes `dev` → `main`). The next review's tally is the
 "did it help?" answer: the same lever should fall.
+
+## Sebtember's widget and Slack follow
+
+The Knowledge Widget and the Slack bot answer with a copy of this prompt, so an improvement here reaches them with no
+second change. Every day sebtember's `sync-chat-prompt.yml` (sebtember Step 1295) reads `SYSTEM_INSTRUCTION_GPT` and
+`CHAT_PROMPT_VERSION` from `main`, runs its own contract check and behaviour gate, and goes live if they pass. If they
+do not, the widget keeps what it has and an issue opens in sebtember-web. So:
+
+- **Promoting `dev` → `main` is what reaches them**, within a day, with no further approval.
+- ⚠️ **The prompt must never name Plugent or rely on what only Plugent has.** It answers on other people's websites.
+  `proposalRefusal` refuses that name in an edit and the sync refuses it in the prompt. Plugent-only rules belong in
+  `PLUGENT_SOURCES_RULE` or `ask-prompt.ts`, which are not copied.
+- **The prompt must keep sebtember's contract markers** (`scripts/check-prompt-drift.ts` there): `never by filename`,
+  `never mention`, `verbatim`, `the gap`, `raw asterisk`, `different subject`, `ask_clarification`, `search_documents`.
+- **The prompt stays plain text:** no `${`, and no backslash but the `` \` `` escape. `proposalRefusal` holds that too.
+- **The review sees only Plugent's conversations.** Widget and Slack answers are not traced, so the gate's cases are
+  what protects those visitors from a change tuned for Plugent's users.
+
+Not carried: the answer model and how the prompt is fed (`ask-prompt.ts`). Sebtember changes those by hand.

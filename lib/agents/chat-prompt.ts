@@ -1,9 +1,10 @@
 /**
  * Chat's answer prompt — PLUGENT'S OWN since 2026-11-01 (the CLAUDE.md rule for Chat). It began
  * as a verbatim copy of sebtember's `lib/chat/system-instruction-gpt.ts` (`gpt-3`) and
- * `lib/chat/language-block.ts`; sebtember.app's chat is retired and its copy is frozen for the
- * Knowledge Widget and Slack, so it is no longer the source. Edit it HERE, bump
- * `CHAT_PROMPT_VERSION`, and run `pnpm eval:chat-behavior -- --run` before and after.
+ * `lib/chat/language-block.ts`; sebtember.app's chat is retired, and its Knowledge Widget and
+ * Slack now follow THIS file daily from `main` (`docs/chat-loop.md`), so `SYSTEM_INSTRUCTION_GPT`
+ * must never name Plugent. Edit it HERE, bump `CHAT_PROMPT_VERSION`, and run
+ * `pnpm eval:chat-behavior -- --run` before and after.
  *
  * `PLUGENT_SOURCES_RULE` (bottom) says which passages the answer used, so the source cards show
  * those. Chat also sends sebtember's clarify tool and the publishers' catalogue guidance

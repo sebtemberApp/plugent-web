@@ -32,8 +32,8 @@ built like PeakPick. It NEVER reads sebtember's Firestore or vectors directly. T
   `traces.createdAt`, `firestore.indexes.json`). ⚠️ This repo is PUBLIC: nothing read from a trace or a turn — a
   question, a passage, an answer — may land in a commit, a PR, an issue or a CI log; the review's evidence stays in
   Plugent's Firestore, and an eval case it proposes is written fresh, not copied.
-- ⚠️ **CHAT'S PROMPT IS PLUGENT'S OWN** (since 2026-11-01; sebtember.app's chat is retired and its copy is frozen for
-  the Knowledge Widget and Slack). `lib/agents/chat-prompt.ts` (it began as sebtember's `SYSTEM_INSTRUCTION_GPT`
+- ⚠️ **CHAT'S PROMPT IS PLUGENT'S OWN** (since 2026-11-01; sebtember.app's chat is retired, and its Knowledge Widget and
+  Slack FOLLOW this prompt daily from `main`, so it must never name Plugent: `docs/chat-loop.md`). `lib/agents/chat-prompt.ts` (it began as sebtember's `SYSTEM_INSTRUCTION_GPT`
   `gpt-3`, language block, chunk header and version reminder) is edited HERE, never copied in; bump
   `CHAT_PROMPT_VERSION`. The call itself is `lib/agents/ask-prompt.ts` (`askCallOptions`, `askMessages`,
   `buildAskPrompt`, `readAnswer`): pure, no `server-only`, so `runAsk` and the behaviour eval run the SAME code.
