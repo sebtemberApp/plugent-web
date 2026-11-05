@@ -9,7 +9,8 @@
  *     current prompt itself holds does not count, since an edit legitimately quotes it;
  *   - would break out of `SYSTEM_INSTRUCTION_GPT`'s backtick template literal (`` ` ``, `${`, `\`): a
  *     `${process.env.X}` would put a server secret into the production prompt and run code at import;
- *   - names an `edit.find` that is not in the prompt EXACTLY ONCE, or replaces text with nothing.
+ *   - names an `edit.find` that is not in the prompt EXACTLY ONCE, or replaces text with nothing;
+ *   - names Plugent: sebtember's widget and Slack follow this prompt, and its sync refuses that name.
  *
  * ⚠️ The evidence is untrusted user text and reached the proposal through two models, so a refusal
  * never quotes what matched: the reason names only the kind of match.
@@ -89,6 +90,7 @@ export function proposalRefusal(
       return "the edit holds a backtick, a backslash or ${ — it would break the prompt's template literal";
   }
   if (!p.edit.replace.trim()) return "the edit replaces text with nothing";
+  if (/plugent/i.test(p.edit.replace)) return "the edit names Plugent";
   if (p.edit.find) {
     const first = prompt.indexOf(p.edit.find);
     if (first < 0) return "edit.find is not in the prompt";

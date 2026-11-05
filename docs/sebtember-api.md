@@ -19,8 +19,8 @@ sebtember's `PRODUCT_API_CALLERS` as `plugent=<email>`. Unlisted → 401.
 
 **What sebtember is for Chat:** the search above, and nothing after it. Since 2026-11-01 Chat's prompt, clarify tool use,
 answer model and evals are Plugent's (`lib/agents/chat-prompt.ts`, `lib/agents/ask-prompt.ts`, `lib/agents/eval/`).
-Sebtember.app's own chat is retired; its `system-instruction-gpt.ts` stays only as the frozen Knowledge Widget / Slack
-prompt and is no longer copied here. A retrieval problem (wrong or missing passages, a bad rewrite, a wrong strength) is
+Sebtember.app's own chat is retired; its `system-instruction-gpt.ts` is now a copy of Plugent's prompt for the Knowledge
+Widget and Slack, taken daily from `main` (`docs/chat-loop.md`). A retrieval problem (wrong or missing passages, a bad rewrite, a wrong strength) is
 still a sebtember change, made first.
 
 ## Planned sebtember-side additions
