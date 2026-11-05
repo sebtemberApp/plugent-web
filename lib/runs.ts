@@ -17,6 +17,7 @@ import type { AskResult, AskSource } from "@/lib/agents/ask";
 import type { AgentId } from "@/lib/agents/registry";
 import type { StepData, StepOutcomeKind } from "@/lib/agents/troubleshoot-prompts";
 import { plugentDb } from "@/lib/firebase/admin";
+import type { PricingTrace } from "@/lib/review/pricing-trace";
 import { OLDER_RUNS_PAGE, SIDEBAR_RUNS } from "@/lib/run-pages";
 import type { ChargeUsage } from "@/lib/sebtember/products";
 import { linkUnpaid } from "@/lib/unpaid";
@@ -634,6 +635,13 @@ export interface PricingRunRef {
   source: string;
 }
 
+/** The run as the route reads it: the ref, plus which stage traces it has already kept. */
+export interface PricingRunState extends PricingRunRef {
+  matchRequestId: string | null;
+  tracedExtract: string | null;
+  tracedMatch: string | null;
+}
+
 export async function createPricingRun(uid: string, ref: PricingRunRef): Promise<string> {
   const doc = runs(uid).doc();
   const now = FieldValue.serverTimestamp();
@@ -650,16 +658,62 @@ export async function createPricingRun(uid: string, ref: PricingRunRef): Promise
   return doc.id;
 }
 
-export async function readPricingRun(uid: string, runId: string): Promise<PricingRunRef | null> {
+export async function readPricingRun(uid: string, runId: string): Promise<PricingRunState | null> {
   const doc = await runs(uid).doc(runId).get();
   if (!doc.exists || doc.get("agent") !== "pricing") return null;
   const pricingId = doc.get("pricingId");
   if (typeof pricingId !== "string" || !pricingId) return null;
+  const str = (k: string) => (typeof doc.get(k) === "string" ? (doc.get(k) as string) : null);
   return {
     title: String(doc.get("title") ?? "Untitled"),
     pricingId,
     source: String(doc.get("source") ?? "personal"),
+    matchRequestId: str("matchRequestId"),
+    tracedExtract: str("tracedExtract"),
+    tracedMatch: str("tracedMatch"),
   };
+}
+
+/**
+ * Keeps a stage's trace for the Pricing review (`lib/review/pricing-trace.ts`), once per stage:
+ * `key` names it (the read's start, the match's request id) and the run remembers the last key
+ * kept, so the polls after a stage ended write nothing. 30 days, like Chat's traces.
+ */
+export async function savePricingTrace(
+  uid: string,
+  runId: string,
+  key: string,
+  trace: PricingTrace,
+): Promise<void> {
+  const ref = runs(uid).doc(runId);
+  const field = trace.stage === "extract" ? "tracedExtract" : "tracedMatch";
+  const batch = plugentDb().batch();
+  batch.set(ref.collection("traces").doc(`${key}-${trace.stage}`), {
+    ...trace,
+    createdAt: FieldValue.serverTimestamp(),
+    expireAt: Timestamp.fromMillis(Date.now() + TRACE_TTL_DAYS * 86_400_000),
+  });
+  batch.update(ref, { [field]: key });
+  await batch.commit();
+}
+
+/**
+ * What the user did with the run's latest match (the lines they re-ticked, an export), written
+ * onto that match's trace. Nothing when no match trace is kept: the choice is evidence about one.
+ */
+export async function recordPricingChoice(
+  uid: string,
+  run: PricingRunState,
+  runId: string,
+  choice: { changed?: Record<string, number[]>; exported?: string | null },
+): Promise<void> {
+  if (!run.tracedMatch) return;
+  const ref = runs(uid).doc(runId).collection("traces").doc(`${run.tracedMatch}-match`);
+  await ref.update({
+    ...(choice.changed ? { "choice.changed": choice.changed } : {}),
+    ...(choice.exported ? { "choice.exported": FieldValue.arrayUnion(choice.exported) } : {}),
+    "choice.at": FieldValue.serverTimestamp(),
+  });
 }
 
 /** How long a claimed match step holds the run (above the route's 300 s, so a live one is never taken). */

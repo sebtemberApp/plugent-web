@@ -13,5 +13,5 @@ next-env.d.ts
 # Firebase emulator logs
 *-debug.log
 
-# Chat review output (scripts/chat-review.ts): report.json holds users' data — never commit
+# Review output (scripts/chat-review.ts, scripts/pricing-review.ts): the reports hold users' data — never commit
 review-out/

@@ -53,6 +53,12 @@ built like PeakPick. It NEVER reads sebtember's Firestore or vectors directly. T
   own: `PricingView` + `PricingTables` (the canvas's Pricing board: stage tabs in the header, tiles, one table per
   stage, one pill action), and the copied parts wear Plugent's classes.
   ⚠️ A new `[[...run]]` param REMOUNTS the page — the URL moves only once the read is back.
+- ⚠️ **PRICING IMPROVES THROUGH A WRITTEN PROPOSAL, TWO-WEEKLY** (`docs/pricing-loop.md`) — each stage's end is
+  kept as a trace (`lib/review/pricing-trace.ts`, `users/{uid}/runs/{runId}/traces/{key}-{extract|match}`, 30 days,
+  server-only, the Chat trace's rules), plus what the user did (ticks changed from the default, exports — the
+  route's `choice`). `pnpm pricing:review` judges every run and writes ONE proposal as
+  `docs/pricing-proposals/YYYY-MM-DD.md`; nothing is built until the operator sets `Status: approved`, and an
+  engine fix still lands in sebtember first. Results stay in `pricing_reviews` (TTL, redacted on account deletion).
 - ⚠️ **COLOURS ARE TOKENS, AND `dark:` FOLLOWS THE PINNED THEME** — `app/globals.css` redefines Tailwind's `dark`
   variant on `data-theme`, then the system setting, as the tokens are. Use `text-warn` / `text-ok` / `text-on-accent`,
   never a palette colour (`amber-600`); radii are `rounded-chip|control|inner|list|card`, never `rounded-md`.
@@ -63,5 +69,6 @@ built like PeakPick. It NEVER reads sebtember's Firestore or vectors directly. T
 
 ## Commands
 `pnpm chat:review` (the two-weekly Chat review, `docs/chat-loop.md`; never in CI, `-- --dry-run` is free) ·
+`pnpm pricing:review` (the two-weekly Pricing review, `docs/pricing-loop.md`; never in CI, `-- --dry-run` is free) ·
 `pnpm dev` · `pnpm build` · `pnpm lint` · `pnpm typecheck` · `pnpm eval:chat-behavior` (free shape check;
 `-- --run` for the paid suite, needs `AI_GATEWAY_API_KEY`)
